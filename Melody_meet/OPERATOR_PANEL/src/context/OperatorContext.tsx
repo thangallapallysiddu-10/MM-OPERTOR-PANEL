@@ -4,10 +4,13 @@
  * Falls back gracefully if backend is unreachable (local state still toggles).
  */
 
-import React, { createContext, useState, useContext, useEffect, ReactNode } from 'react';
+import React, { createContext, useState, useContext, useEffect, useRef, ReactNode } from 'react';
 import { Alert } from 'react-native';
 import { StreamApi, Stream } from '../services/api/operatorApi';
+import { RjApi } from '../services/api/rjApi';
+import { StorageService } from '../services/storageService';
 import { streamSocket } from '../services/socketService';
+import { useAppStore } from '../store/useAppStore';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -75,6 +78,7 @@ export const OperatorProvider = ({ children }: { children: ReactNode }) => {
   });
   const [activeChannel, setActiveChannel] = useState<number>(1);
   const [podcasts, setPodcasts] = useState<Podcast[]>([]);
+  const healthIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // ── Fetch streams on mount ─────────────────────────────────────────────────
   const refreshStreams = async () => {
@@ -116,26 +120,52 @@ export const OperatorProvider = ({ children }: { children: ReactNode }) => {
     return () => unsub?.();
   }, []);
 
+  // Cleanup health ping on unmount
+  useEffect(() => {
+    return () => {
+      if (healthIntervalRef.current) {
+        clearInterval(healthIntervalRef.current);
+        healthIntervalRef.current = null;
+      }
+    };
+  }, []);
+
   // ── Go Live with a specific stream ID ──────────────────────────────────────
   const goLiveWithId = async (streamId: number | string, streamName = 'MelodyMeet') => {
     try {
+      const token = await StorageService.getSessionToken();
+      if (token) {
+        try {
+          await RjApi.goLive(streamId, { streamName, viewerCount: 0 });
+        } catch {
+          /* stream-only fallback */
+        }
+      }
       await StreamApi.goLive(streamId);
       setIsLive(true);
       setActiveStreamId(streamId);
       setListeners(0);
+      useAppStore.getState().updateRjStudioState({ chatMessages: [], rjNotifications: [] });
 
-      // Notify socket
       streamSocket.joinStream(streamId);
       streamSocket.goLive(streamId, streamName);
 
+      // Clean up previous interval if any
+      if (healthIntervalRef.current) {
+        clearInterval(healthIntervalRef.current);
+      }
+
       // Start health polling
-      const healthInterval = setInterval(() => {
+      healthIntervalRef.current = setInterval(() => {
         streamSocket.pingHealth(streamId);
       }, 10000);
 
       // Clean up on stop
       const unsub = streamSocket.onStreamEnded(() => {
-        clearInterval(healthInterval);
+        if (healthIntervalRef.current) {
+          clearInterval(healthIntervalRef.current);
+          healthIntervalRef.current = null;
+        }
         unsub?.();
       });
     } catch (err: any) {
@@ -146,10 +176,23 @@ export const OperatorProvider = ({ children }: { children: ReactNode }) => {
   // ── Stop Live ──────────────────────────────────────────────────────────────
   const stopLiveWithId = async (streamId: number | string) => {
     try {
+      const token = await StorageService.getSessionToken();
+      if (token) {
+        try {
+          await RjApi.stopLive(streamId, { viewerCount: listeners });
+        } catch {
+          /* continue */
+        }
+      }
       await StreamApi.stopLive(streamId);
       setIsLive(false);
       setActiveStreamId(null);
       setListeners(0);
+      useAppStore.getState().updateRjStudioState({ chatMessages: [], rjNotifications: [] });
+      useAppStore.getState().updateRjStudioState({
+        activeListeners: 0,
+        rjStats: { ...useAppStore.getState().rjStudio.rjStats, listeners: 0 }
+      });
       streamSocket.endStream(streamId);
     } catch (err: any) {
       Alert.alert('Stop Live Failed', err.message || 'Could not stop stream');
@@ -164,6 +207,10 @@ export const OperatorProvider = ({ children }: { children: ReactNode }) => {
       } else {
         setIsLive(false);
         setListeners(0);
+        useAppStore.getState().updateRjStudioState({
+          activeListeners: 0,
+          rjStats: { ...useAppStore.getState().rjStudio.rjStats, listeners: 0 }
+        });
       }
     } else {
       if (streams.length > 0) {

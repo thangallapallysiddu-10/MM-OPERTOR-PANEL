@@ -34,7 +34,6 @@ export const useRequests = ({
 
   const handleNewRequest = (): void => {
     if (!newRequest.trim()) return;
-    console.log("📝 New request submitted:", newRequest);
     const newReq = { 
       id: Date.now(), 
       user: "Listener", 
@@ -58,8 +57,6 @@ export const useRequests = ({
   };
 
  const playRequest = (req: any): void => {
-  console.log("🎵 Play Now clicked for:", req.song);
-  
   setRequests((prev: any[]) => prev.map((r: any) => 
     r.id === req.id ? { ...r, played: true } : r
   ));
@@ -81,7 +78,6 @@ export const useRequests = ({
     fx: { echo: 0, flanger: 0, loop: 0, reverse: 0, hotCue: 0 }
   };
   
-  console.log("📀 Loading into standby player:", songTitle);
   loadIntoStandbyPlayer(requestedTrack);
   addNotification("system", `📀 "${songTitle}" loaded into standby. Click PLAY SONG on the player to broadcast!`);
 };
@@ -91,8 +87,6 @@ export const useRequests = ({
       addNotification("system", "❌ Please enter a valid URL");
       return false;
     }
-    
-    console.log("🔗 URL submitted:", songUrl);
     
     let songName = "🎵 URL Track";
     let artist = "External Source";

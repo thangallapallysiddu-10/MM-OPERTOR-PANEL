@@ -89,6 +89,10 @@ async function persistSession(user?: BackendUser, tokens?: any): Promise<User | 
 }
 
 class AuthApi {
+  static async persistLoginResponse(data: { user?: BackendUser; tokens?: { accessToken?: string; refreshToken?: string } }): Promise<User | null> {
+    return persistSession(data.user, data.tokens);
+  }
+
   static async getDeviceId(): Promise<string> {
     return getDeviceId();
   }
@@ -228,7 +232,8 @@ class AuthApi {
       const { data } = await axios.post(`${API_BASE_URL}/auth/refresh`, { refreshToken });
       return persistSession(data.user, data.tokens);
     } catch (error: any) {
-      await this.logout();
+      // Do NOT call logout() here — that wipes the session (including the refresh token
+      // itself) and makes recovery impossible. Just rethrow so the caller can decide.
       throw normalizeError(error);
     }
   }
@@ -245,6 +250,7 @@ class AuthApi {
       console.warn('Backend logout failed; clearing local session anyway.');
     } finally {
       await StorageService.clearAll();
+      await StorageService.removeCustomItem(REFRESH_TOKEN_KEY);
       await StorageService.setCustomItem(DEVICE_ID_KEY, deviceId);
     }
   }

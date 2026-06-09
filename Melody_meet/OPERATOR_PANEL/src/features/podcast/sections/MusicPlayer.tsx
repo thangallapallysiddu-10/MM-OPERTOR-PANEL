@@ -385,7 +385,7 @@ export const MusicPlayer: React.FC<MusicPlayerProps> = ({
         mediaPlaybackRequiresUserAction={false}
         originWhitelist={["*"]}
         onMessage={handleWebViewMessage}
-        onError={(error) => console.log('WebView error:', error)}
+        onError={(error) => console.error('WebView error:', error)}
       />
     );
   };
@@ -420,7 +420,7 @@ export const MusicPlayer: React.FC<MusicPlayerProps> = ({
         updatePodcastState({ isMusicPlaying: false });
       }
     } catch (error) {
-      console.log('Error parsing message:', error);
+      console.error('Error parsing message:', error);
     }
   };
 

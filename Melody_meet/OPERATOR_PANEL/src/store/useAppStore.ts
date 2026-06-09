@@ -71,11 +71,27 @@ interface Mic {
   guestId?: string;
 }
 
-interface Guest {
-  id: string;
-  name: string;
-  device: string;
-  status: 'pending' | 'approved' | 'denied';
+export interface GuestSlot {
+  slotId: 'mic2' | 'mic3' | 'mic4' | 'mic5';
+  label: string;
+  status: 'empty' | 'connected';
+  guestName: string | null;
+  guestId: number | null;
+  url?: string;
+  micMuted?: boolean;        // operator-set mute (persisted to DB)
+  volume?: number;           // operator-set volume 0–200 (persisted to DB)
+  guestSelfMuted?: boolean;  // guest's own mic toggle (transient, socket only)
+  // Analytics — Phase 1: speaking time
+  isSpeaking?: boolean;             // real-time speaking state from guest_speaking event
+  speakingSeconds?: number;         // accumulated speaking time this session
+  speakingStartedAt?: number | null; // Date.now() when speaking started, null when silent
+  // Analytics — Phase 2: mic health
+  micHealth?: 'connected' | 'disconnected' | 'reconnecting';
+  // Analytics — Phase 3: connection quality (WebRTC stats)
+  connectionQuality?: 'excellent' | 'good' | 'poor' | null;
+  rtt?: number | null;          // round-trip time ms
+  packetLoss?: number | null;   // 0–100 percent
+  jitter?: number | null;       // ms
 }
 
 interface TrimRange {
@@ -136,21 +152,13 @@ interface Track {
 
 interface PlaylistTrack {
   id: number;
+  serverId?: string;
+  localFileId?: string;
   title: string;
   artist: string;
   duration: string;
   bpm: number;
-  channel: number;
-}
-
-interface RjMixerChannel {
-  id: number;
-  name: string;
-  volume: number;
-  isMuted: boolean;
-  isSolo: boolean;
-  isCue: boolean;
-  fx: string[];
+  channel?: number;
 }
 
 interface RjMicUser {
@@ -203,10 +211,7 @@ interface PodcastState {
   currentMusic: any;
   isMusicPlaying: boolean;
   musicLink: string;
-  guestRequests: Guest[];
-  approvedGuests: Guest[];
-  showGuestPanel: boolean;
-  showMusicPlayer: boolean;
+  guestSlots: GuestSlot[];
   trimModalVisible: boolean;
   currentRecordingForTrim: Recording | null;
   trimRanges: TrimRange[];
@@ -234,6 +239,10 @@ interface PodcastState {
   liveTitle: string;
   liveDescription: string;
   roomLink: string;
+  // WebRTC signaling relay — set by usePodcastSocket when a signaling message
+  // arrives from a guest. usePeerConnections reads this reactively.
+  // Shape: { type: 'offer'|'answer'|'ice', slotId, sdp?, candidate? }
+  pendingWebRtcSignal: Record<string, any> | null;
 }
 
 interface RjStudioState {
@@ -244,9 +253,14 @@ interface RjStudioState {
   pinnedMessage: Message | null;
   showGiftModal: boolean;
   showStickerModal: boolean;
+  currentTrack: Track | null;
   currentTrackId: number | null;
   playerATrack: Track | null;
   playerBTrack: Track | null;
+  isPlayingA: boolean;
+  isPlayingB: boolean;
+  wasPlayingA?: boolean;
+  wasPlayingB?: boolean;
   activePlayer: 'A' | 'B';
   crossfadeValue: number;
   isCrossfading: boolean;
@@ -255,6 +269,17 @@ interface RjStudioState {
   playlistDuration: number;
   isPlaylistPaused: boolean;
   playlistTimerRemaining: number;
+  playlistCurrentIndex: number;
+  playlistTrackElapsedMs: number;
+  playlistSession: {
+    startedAt: string | null;
+    stoppedAt: string | null;
+    totalRuntime: number;
+    tracksPlayed: number;
+    pausedAt: string | null;
+    accumulatedMs: number;
+  } | null;
+  trackStats: Record<string, { playCount: number; lastPlayedAt: string }>;
   showPlaylistModal: boolean;
   songRequests: Array<{
     id: number;
@@ -265,10 +290,7 @@ interface RjStudioState {
     votes: number;
     hasVoted: boolean;
   }>;
-  mixerChannels: RjMixerChannel[];
-  masterGain: number;
-  mixerCrossfader: number;
-  selectedFX: string[];
+
   rjMics: RjMicUser[];
   showAddMicModal: boolean;
   newMicName: string;
@@ -285,6 +307,7 @@ interface RjStudioState {
   liveTimerSeconds: number;
   rjNotifications: RjNotification[];
   localPlayback: LocalFilePlaybackState;
+  isLocalAudioMuted: boolean;
 }
 
 interface AppState {
@@ -333,10 +356,8 @@ interface AppState {
   updateMic: (id: number, data: Partial<Mic>) => void;
   toggleMicMute: (id: number) => void;
   setActiveMic: (id: number) => void;
-  addGuestRequest: (guest: Guest) => void;
-  approveGuestRequest: (id: string) => void;
-  denyGuestRequest: (id: string) => void;
-  removeGuest: (id: string) => void;
+  setGuestSlots: (slots: GuestSlot[]) => void;
+  updateGuestSlot: (slotId: string, data: Partial<GuestSlot>) => void;
   addTrimRange: (range: TrimRange) => void;
   removeTrimRange: (index: number) => void;
   clearTrimRanges: () => void;
@@ -374,29 +395,27 @@ const initialRjStudioState: RjStudioState = {
   pinnedMessage: null,
   showGiftModal: false,
   showStickerModal: false,
+  currentTrack: null,
   currentTrackId: null,
   playerATrack: null,
   playerBTrack: null,
+  isPlayingA: false,
+  isPlayingB: false,
   activePlayer: 'A',
-  crossfadeValue: 0,
+  crossfadeValue: 50,
   isCrossfading: false,
   playlist: [],
   isPlaylistActive: false,
   isPlaylistPaused: false,
-  playlistDuration: 0,
+  playlistDuration: 60,
   playlistTimerRemaining: 0,
+  playlistCurrentIndex: 0,
+  playlistTrackElapsedMs: 0,
+  playlistSession: null,
+  trackStats: {},
   showPlaylistModal: false,
   songRequests: [],
-  mixerChannels: [
-    { id: 1, name: "Track A", volume: 80, isMuted: false, isSolo: false, isCue: false, fx: ["echo", "hotCue"] },
-    { id: 2, name: "Track B", volume: 75, isMuted: false, isSolo: false, isCue: false, fx: ["flanger", "reverse"] },
-    { id: 3, name: "MIC 1", volume: 70, isMuted: false, isSolo: false, isCue: false, fx: ["echo", "flanger", "loop", "reverse", "hotCue"] },
-    { id: 4, name: "MIC 2", volume: 65, isMuted: false, isSolo: false, isCue: false, fx: ["echo", "loop"] },
-    { id: 5, name: "AUX", volume: 60, isMuted: false, isSolo: false, isCue: false, fx: ["echo", "flanger", "reverse"] },
-  ],
-  masterGain: 70,
-  mixerCrossfader: 50,
-  selectedFX: [],
+
   rjMics: [
     { id: "mic1", name: "PLAYER ONE", avatar: "P1", isActive: false, isMuted: false, volume: 0 },
     { id: "mic2", name: "PLAYER TWO", avatar: "P2", isActive: false, isMuted: false, volume: 0 },
@@ -420,6 +439,7 @@ const initialRjStudioState: RjStudioState = {
   ],
   localPlayback: initialLocalPlaybackState,
   uploadedLocalFiles: [],
+  isLocalAudioMuted: false,
 };
 
 const initialPodcastState: PodcastState = {
@@ -449,10 +469,12 @@ const initialPodcastState: PodcastState = {
   currentMusic: null,
   isMusicPlaying: false,
   musicLink: '',
-  guestRequests: [],
-  approvedGuests: [],
-  showGuestPanel: true,
-  showMusicPlayer: true,
+  guestSlots: [
+    { slotId: 'mic2', label: 'MIC 2', status: 'empty', guestName: null, guestId: null },
+    { slotId: 'mic3', label: 'MIC 3', status: 'empty', guestName: null, guestId: null },
+    { slotId: 'mic4', label: 'MIC 4', status: 'empty', guestName: null, guestId: null },
+    { slotId: 'mic5', label: 'MIC 5', status: 'empty', guestName: null, guestId: null },
+  ],
   trimModalVisible: false,
   currentRecordingForTrim: null,
   trimRanges: [],
@@ -480,6 +502,7 @@ const initialPodcastState: PodcastState = {
   liveTitle: '',
   liveDescription: '',
   roomLink: '',
+  pendingWebRtcSignal: null,
 };
 
 const initialRjs: User[] = [
@@ -740,38 +763,18 @@ export const useAppStore = create<AppState>((set) => ({
       PodcastApi.updateMic(id, { active: true }).catch(console.error);
     });
   },
-  
-  addGuestRequest: (guest) => set((state) => ({
-    podcast: {
-      ...state.podcast,
-      guestRequests: [...state.podcast.guestRequests, guest]
-    }
+
+  setGuestSlots: (guestSlots) => set((state) => ({
+    podcast: { ...state.podcast, guestSlots }
   })),
-  
-  approveGuestRequest: (id) => set((state) => {
-    const guest = state.podcast.guestRequests.find(g => g.id === id);
-    if (!guest) return state;
-    return {
-      podcast: {
-        ...state.podcast,
-        guestRequests: state.podcast.guestRequests.filter(g => g.id !== id),
-        approvedGuests: [...state.podcast.approvedGuests, { ...guest, status: 'approved' }]
-      }
-    };
-  }),
-  
-  denyGuestRequest: (id) => set((state) => ({
+
+  updateGuestSlot: (slotId, data) => set((state) => ({
     podcast: {
       ...state.podcast,
-      guestRequests: state.podcast.guestRequests.filter(g => g.id !== id)
-    }
-  })),
-  
-  removeGuest: (id) => set((state) => ({
-    podcast: {
-      ...state.podcast,
-      approvedGuests: state.podcast.approvedGuests.filter(g => g.id !== id)
-    }
+      guestSlots: state.podcast.guestSlots.map(s =>
+        s.slotId === slotId ? { ...s, ...data } : s
+      ),
+    },
   })),
   
   addTrimRange: (range) => set((state) => ({
@@ -807,7 +810,7 @@ export const useAppStore = create<AppState>((set) => ({
       rjNotifications: [
         { ...notification, id: Date.now(), timestamp: new Date(), read: false },
         ...state.rjStudio.rjNotifications
-      ]
+      ].slice(0, 100)
     }
   })),
   

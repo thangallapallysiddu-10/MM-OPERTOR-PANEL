@@ -51,7 +51,6 @@ export class StorageService {
       const userJson = JSON.stringify(user);
       await setItem(STORAGE_KEYS.USER, userJson);
       await setItem(STORAGE_KEYS.LOGGED_IN, 'true');
-      console.log(`User saved:`, user.mobileNumber || user.email);
     } catch (error) {
       console.error('Failed to save user:', error);
     }
@@ -71,7 +70,6 @@ export class StorageService {
     try {
       await removeItem(STORAGE_KEYS.USER);
       await removeItem(STORAGE_KEYS.LOGGED_IN);
-      console.log('User removed');
     } catch (error) {
       console.error('Failed to remove user:', error);
     }
@@ -233,7 +231,6 @@ export class StorageService {
         STORAGE_KEYS.TEMP_USER_ID,
         STORAGE_KEYS.TEMP_MOBILE,
       ]);
-      console.log('All storage cleared');
     } catch (error) {
       console.error('Failed to clear storage:', error);
     }

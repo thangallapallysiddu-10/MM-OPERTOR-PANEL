@@ -1,13 +1,13 @@
-// hooks/useNotifications.ts - Fixed
 import { useAppStore } from '../../../store/useAppStore';
+import { rjBackend } from '../services/rjBackend';
+import { RjApi } from '../../../services/api/rjApi';
+import { pushNotificationToBackend } from '../services/rjApiSync';
 
 export const useNotifications = () => {
-  // Get from Zustand store
   const { rjStudio, updateRjStudioState, addRjNotification } = useAppStore();
   
-  // Get values from store (these persist across navigation)
   const notifications = rjStudio.rjNotifications;
-  const setNotifications = (fn: any) => {
+  const setNotifications = (fn: ((prev: typeof notifications) => typeof notifications) | typeof notifications) => {
     if (typeof fn === 'function') {
       updateRjStudioState({ rjNotifications: fn(notifications) });
     } else {
@@ -22,25 +22,36 @@ export const useNotifications = () => {
       type: type,
       read: false,
     });
+    void pushNotificationToBackend(type, message);
   };
 
-  const markNotificationAsRead = (id: number) => {
-    setNotifications((prev: any[]) => 
-      prev.map(notif => 
-        notif.id === id ? { ...notif, read: true } : notif
-      )
-    );
+  const markNotificationAsRead = async (id: number) => {
+    const sid = rjBackend.getStudioId();
+    const notif = notifications.find(n => n.id === id);
+    if (rjBackend.isEnabled() && sid && notif && (notif as { serverId?: string }).serverId) {
+      try {
+        await RjApi.markNotificationRead(sid, String((notif as { serverId?: string }).serverId));
+      } catch {
+        /* local */
+      }
+    }
+    setNotifications((prev) => prev.map(notif => notif.id === id ? { ...notif, read: true } : notif));
   };
 
-  const markAllNotificationsAsRead = () => {
-    setNotifications((prev: any[]) => 
-      prev.map(notif => ({ ...notif, read: true }))
-    );
+  const markAllNotificationsAsRead = async () => {
+    const sid = rjBackend.getStudioId();
+    if (rjBackend.isEnabled() && sid) {
+      try {
+        await RjApi.markAllNotificationsRead(sid);
+      } catch {
+        /* local */
+      }
+    }
+    setNotifications((prev) => prev.map(notif => ({ ...notif, read: true })));
   };
 
   const unreadCount = notifications.filter(n => !n.read).length;
 
-  // Convert store notifications to the format expected by NotificationsModal
   const formattedNotifications = notifications.map(n => ({
     id: n.id,
     type: n.type,

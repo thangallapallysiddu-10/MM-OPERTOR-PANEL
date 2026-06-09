@@ -54,29 +54,28 @@ export const NowPlaying: React.FC<NowPlayingProps> = ({
   if (!hasValidTrack) {
     return (
       <View style={{
-        flex: 1,
-        borderRadius: 12,
-        padding: 10,
-        minWidth: 150,
-        backgroundColor: isDarkMode ? '#1F2937' : '#FFFFFF',
-        borderWidth: 1,
-        borderColor: isDarkMode ? '#374151' : '#E5E7EB',
-        justifyContent: 'center',
-        alignItems: 'center',
+        flex: 1, borderRadius: 14, padding: 14, minWidth: 150,
+        backgroundColor: isDarkMode ? '#1E293B' : '#FFFFFF',
+        borderWidth: 1, borderColor: isDarkMode ? '#334155' : '#E2E8F0',
+        justifyContent: 'center', alignItems: 'center',
+        shadowColor: '#000', shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: isDarkMode ? 0.15 : 0.04, shadowRadius: 4, elevation: 2,
       }}>
-        <Feather name="music" size={24} color={isDarkMode ? '#6B7280' : '#9CA3AF'} />
-        <Text style={{ fontSize: 12, marginTop: 6, color: isDarkMode ? '#9CA3AF' : '#6B7280', textAlign: 'center' }}>
+        <View style={{ width: 40, height: 40, borderRadius: 10, backgroundColor: isDarkMode ? '#263347' : '#F1F5F9', justifyContent: 'center', alignItems: 'center', marginBottom: 8 }}>
+          <Feather name="music" size={20} color={isDarkMode ? '#64748B' : '#94A3B8'} />
+        </View>
+        <Text style={{ fontSize: 12, fontWeight: '600', color: isDarkMode ? '#94A3B8' : '#475569', textAlign: 'center' }}>
           No song playing
         </Text>
-        <Text style={{ fontSize: 10, marginTop: 4, color: isDarkMode ? '#6B7280' : '#9CA3AF', textAlign: 'center' }}>
-          Request a song or play from library
+        <Text style={{ fontSize: 10, marginTop: 3, color: isDarkMode ? '#64748B' : '#94A3B8', textAlign: 'center' }}>
+          Open playlist to add songs
         </Text>
-        <TouchableOpacity 
-          onPress={onOpenPlaylist} 
-          style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 5, paddingHorizontal: 10, borderRadius: 14, marginTop: 10, borderWidth: 1, borderColor: isDarkMode ? '#4B5563' : '#E5E7EB' }}
+        <TouchableOpacity
+          onPress={onOpenPlaylist}
+          style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, paddingVertical: 6, paddingHorizontal: 12, borderRadius: 8, marginTop: 10, borderWidth: 1, borderColor: isDarkMode ? '#334155' : '#E2E8F0', backgroundColor: isDarkMode ? '#263347' : '#F8FAFC' }}
         >
-          <Feather name="list" size={12} color={isDarkMode ? "#9CA3AF" : "#6B7280"} />
-          <Text style={{ fontSize: 10, fontWeight: '500', color: isDarkMode ? '#9CA3AF' : '#6B7280' }}>Playlist ({playlistLength})</Text>
+          <Feather name="list" size={12} color={isDarkMode ? '#94A3B8' : '#475569'} />
+          <Text style={{ fontSize: 11, fontWeight: '500', color: isDarkMode ? '#94A3B8' : '#475569' }}>Playlist ({playlistLength})</Text>
         </TouchableOpacity>
       </View>
     );
@@ -84,44 +83,42 @@ export const NowPlaying: React.FC<NowPlayingProps> = ({
 
   return (
     <View style={{
-      flex: 1,
-      borderRadius: 12,
-      padding: 10,
-      minWidth: 150,
-      backgroundColor: isDarkMode ? '#1F2937' : '#FFFFFF',
-      borderWidth: 1,
-      borderColor: isDarkMode ? '#374151' : '#E5E7EB',
+      flex: 1, borderRadius: 14, padding: 12, minWidth: 150,
+      backgroundColor: isDarkMode ? '#1E293B' : '#FFFFFF',
+      borderWidth: 1, borderColor: isDarkMode ? '#334155' : '#E2E8F0',
+      shadowColor: '#000', shadowOffset: { width: 0, height: 1 },
+      shadowOpacity: isDarkMode ? 0.15 : 0.04, shadowRadius: 4, elevation: 2,
     }}>
-      <Text style={{ fontSize: 9, marginBottom: 6, color: isDarkMode ? '#9CA3AF' : '#6B7280' }}>
+      <Text style={{ fontSize: 9, fontWeight: '600', marginBottom: 6, letterSpacing: 0.6, color: isDarkMode ? '#64748B' : '#94A3B8' }}>
         NOW PLAYING
       </Text>
       
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
         <View style={{ flex: 1 }}>
-          <Text style={{ fontSize: 14, fontWeight: 'bold', color: isDarkMode ? '#FFFFFF' : '#000000' }} numberOfLines={1}>
+          <Text style={{ fontSize: 13, fontWeight: '700', color: isDarkMode ? '#F1F5F9' : '#0F172A', letterSpacing: -0.2 }} numberOfLines={1}>
             {track.title}
           </Text>
-          <Text style={{ fontSize: 11, marginTop: 2, color: isDarkMode ? '#9CA3AF' : '#6B7280' }} numberOfLines={1}>
+          <Text style={{ fontSize: 11, marginTop: 2, color: isDarkMode ? '#64748B' : '#94A3B8' }} numberOfLines={1}>
             {track.artist}
           </Text>
         </View>
         
-        <View style={{ alignItems: 'flex-end', gap: 4 }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 6, paddingVertical: 3, borderRadius: 16, backgroundColor: isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)' }}>
+        <View style={{ alignItems: 'flex-end', gap: 3 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 7, paddingVertical: 3, borderRadius: 8, backgroundColor: isDarkMode ? '#263347' : '#F1F5F9' }}>
             <Text style={{ fontSize: 10 }}>{getMoodIcon()}</Text>
-            <Text style={{ fontSize: 10, fontWeight: 'bold', color: getMoodColor() }}>{track.bpm} BPM</Text>
+            <Text style={{ fontSize: 10, fontWeight: '600', color: isDarkMode ? '#94A3B8' : '#475569' }}>{track.bpm} BPM</Text>
           </View>
-          <Text style={{ fontSize: 10, color: isDarkMode ? '#9CA3AF' : '#6B7280' }}>{track.duration}</Text>
+          <Text style={{ fontSize: 10, color: isDarkMode ? '#64748B' : '#94A3B8' }}>{track.duration}</Text>
         </View>
       </View>
       
-      <TouchableOpacity 
-        onPress={onOpenPlaylist} 
-        style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 5, borderRadius: 14, marginTop: 8, borderWidth: 1, borderColor: isDarkMode ? '#4B5563' : '#E5E7EB' }}
+      <TouchableOpacity
+        onPress={onOpenPlaylist}
+        style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, paddingVertical: 7, borderRadius: 8, marginTop: 10, borderWidth: 1, borderColor: isDarkMode ? '#334155' : '#E2E8F0', backgroundColor: isDarkMode ? '#263347' : '#F8FAFC' }}
       >
-        <Feather name="list" size={12} color={isDarkMode ? "#9CA3AF" : "#6B7280"} />
-        <Text style={{ fontSize: 10, fontWeight: '500', color: isDarkMode ? '#9CA3AF' : '#6B7280' }}>Playlist ({playlistLength})</Text>
-        {isPlaylistActive && <View style={{ width: 6, height: 6, borderRadius: 3, marginLeft: 4, backgroundColor: isDarkMode ? '#9CA3AF' : '#6B7280' }} />}
+        <Feather name="list" size={12} color={isDarkMode ? '#94A3B8' : '#475569'} />
+        <Text style={{ fontSize: 11, fontWeight: '500', color: isDarkMode ? '#94A3B8' : '#475569' }}>Playlist ({playlistLength})</Text>
+        {isPlaylistActive && <View style={{ width: 6, height: 6, borderRadius: 3, marginLeft: 2, backgroundColor: '#059669' }} />}
       </TouchableOpacity>
     </View>
   );

@@ -41,31 +41,39 @@ export const NotificationsModal: React.FC<NotificationsModalProps> = ({
           borderRadius: 16,
           borderWidth: 1,
           padding: 20,
-          backgroundColor: isDarkMode ? '#1F2937' : '#FFFFFF',
-          borderColor: isDarkMode ? '#374151' : '#E5E7EB',
+          backgroundColor: isDarkMode ? '#1E293B' : '#FFFFFF',
+          borderColor: isDarkMode ? '#334155' : '#E2E8F0',
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 4 },
+          shadowOpacity: isDarkMode ? 0.3 : 0.08,
+          shadowRadius: 16,
+          elevation: 8,
         }}>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-              <Text style={{ fontSize: 18, fontWeight: 'bold', color: isDarkMode ? '#FFFFFF' : '#000000' }}>Notifications</Text>
+              <Text style={{ fontSize: 17, fontWeight: '700', color: isDarkMode ? '#F1F5F9' : '#0F172A' }}>Notifications</Text>
               {unreadCount > 0 && (
-                <View style={{ paddingHorizontal: 8, paddingVertical: 2, borderRadius: 12, backgroundColor: isDarkMode ? '#4B5563' : '#E5E7EB' }}>
-                  <Text style={{ fontSize: 10, fontWeight: 'bold', color: isDarkMode ? '#FFFFFF' : '#000000' }}>{unreadCount}</Text>
+                <View style={{ paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10, backgroundColor: '#4F6AF0' }}>
+                  <Text style={{ fontSize: 10, fontWeight: '700', color: '#FFFFFF' }}>{unreadCount}</Text>
                 </View>
               )}
             </View>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
               {notifications.length > 0 && (
                 <TouchableOpacity onPress={onMarkAllAsRead}>
-                  <Text style={{ fontSize: 12, fontWeight: '500', color: isDarkMode ? '#9CA3AF' : '#6B7280' }}>Clear All</Text>
+                  <Text style={{ fontSize: 12, fontWeight: '500', color: '#4F6AF0' }}>Clear All</Text>
                 </TouchableOpacity>
               )}
-              <TouchableOpacity onPress={onClose}>
-                <Feather name="x" size={22} color={isDarkMode ? "#9CA3AF" : "#6B7280"} />
+              <TouchableOpacity
+                onPress={onClose}
+                style={{ width: 30, height: 30, borderRadius: 8, backgroundColor: isDarkMode ? '#263347' : '#F1F5F9', justifyContent: 'center', alignItems: 'center' }}
+              >
+                <Feather name="x" size={15} color={isDarkMode ? '#94A3B8' : '#475569'} />
               </TouchableOpacity>
             </View>
           </View>
           
-          <View style={{ height: 1, marginVertical: 8, backgroundColor: isDarkMode ? '#374151' : '#E5E7EB' }} />
+          <View style={{ height: 1, marginBottom: 10, backgroundColor: isDarkMode ? '#334155' : '#E2E8F0' }} />
           
           <FlatList
             data={notifications}
@@ -73,45 +81,40 @@ export const NotificationsModal: React.FC<NotificationsModalProps> = ({
             style={{ maxHeight: 400 }}
             showsVerticalScrollIndicator={false}
             renderItem={({ item }) => (
-              <TouchableOpacity 
+              <TouchableOpacity
                 style={{
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  gap: 12,
-                  paddingVertical: 14,
-                  paddingHorizontal: 8,
-                  borderBottomWidth: 1,
-                  borderBottomColor: isDarkMode ? '#374151' : '#E5E7EB',
-                  backgroundColor: !item.read ? (isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)') : 'transparent',
+                  flexDirection: 'row', alignItems: 'center', gap: 10,
+                  paddingVertical: 12, paddingHorizontal: 8,
+                  borderBottomWidth: 1, borderBottomColor: isDarkMode ? '#334155' : '#F1F5F9',
+                  backgroundColor: !item.read
+                    ? (isDarkMode ? '#1E3A8A18' : '#EEF2FF')
+                    : 'transparent',
+                  borderRadius: !item.read ? 8 : 0,
                 }}
                 onPress={() => onMarkAsRead(item.id)}
               >
                 <View style={{
-                  width: 40,
-                  height: 40,
-                  borderRadius: 20,
-                  justifyContent: 'center',
-                  alignItems: 'center',
-                  backgroundColor: isDarkMode ? '#374151' : '#F3F4F6',
+                  width: 36, height: 36, borderRadius: 10, justifyContent: 'center', alignItems: 'center',
+                  backgroundColor: isDarkMode ? '#263347' : '#F1F5F9',
                 }}>
-                  {item.type === "request" && <Feather name="music" size={18} color={isDarkMode ? "#9CA3AF" : "#6B7280"} />}
-                  {item.type === "system" && <Feather name="bell" size={18} color={isDarkMode ? "#9CA3AF" : "#6B7280"} />}
-                  {item.type === "alert" && <Feather name="alert-circle" size={18} color={isDarkMode ? "#9CA3AF" : "#6B7280"} />}
+                  {item.type === "request" && <Feather name="music"        size={16} color="#4F6AF0" />}
+                  {item.type === "system"  && <Feather name="bell"         size={16} color={isDarkMode ? '#94A3B8' : '#475569'} />}
+                  {item.type === "alert"   && <Feather name="alert-circle" size={16} color="#D97706" />}
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={{ fontSize: 13, fontWeight: '500', color: isDarkMode ? '#FFFFFF' : '#000000' }}>{item.message}</Text>
-                  <Text style={{ fontSize: 10, marginTop: 2, color: isDarkMode ? '#9CA3AF' : '#6B7280' }}>{item.time}</Text>
+                  <Text style={{ fontSize: 13, fontWeight: '500', color: isDarkMode ? '#F1F5F9' : '#0F172A' }}>{item.message}</Text>
+                  <Text style={{ fontSize: 10, marginTop: 2, color: isDarkMode ? '#64748B' : '#94A3B8' }}>{item.time}</Text>
                 </View>
                 {!item.read && (
-                  <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: isDarkMode ? '#FFFFFF' : '#000000' }} />
+                  <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: '#4F6AF0' }} />
                 )}
               </TouchableOpacity>
             )}
             ListEmptyComponent={() => (
-              <View style={{ alignItems: 'center', gap: 16, paddingVertical: 60 }}>
-                <Feather name="bell-off" size={48} color={isDarkMode ? "#6B7280" : "#9CA3AF"} />
-                <Text style={{ fontSize: 14, fontWeight: '500', color: isDarkMode ? '#9CA3AF' : '#6B7280' }}>No notifications</Text>
-                <Text style={{ fontSize: 11, color: isDarkMode ? '#9CA3AF' : '#6B7280' }}>When you get notifications, they'll appear here</Text>
+              <View style={{ alignItems: 'center', gap: 12, paddingVertical: 48 }}>
+                <Feather name="bell-off" size={36} color={isDarkMode ? '#334155' : '#CBD5E1'} />
+                <Text style={{ fontSize: 14, fontWeight: '500', color: isDarkMode ? '#64748B' : '#94A3B8' }}>No notifications</Text>
+                <Text style={{ fontSize: 11, color: isDarkMode ? '#64748B' : '#94A3B8', textAlign: 'center' }}>When you get notifications, they'll appear here</Text>
               </View>
             )}
           />

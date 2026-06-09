@@ -26,16 +26,19 @@ export const PinnedMessage: React.FC<PinnedMessageProps> = ({
       marginBottom: 12,
       borderRadius: 10,
       gap: 8,
-      backgroundColor: isDarkMode ? '#1F2937' : '#FFFFFF',
+      backgroundColor: isDarkMode ? '#1E3A8A18' : '#EEF2FF',
       borderWidth: 1,
-      borderColor: isDarkMode ? '#4B5563' : '#D1D5DB',
+      borderColor: isDarkMode ? '#2D4A9A' : '#C7D2FE',
     }}>
-      <Ionicons name="pin" size={16} color={isDarkMode ? "#9CA3AF" : "#6B7280"} />
-      <Text style={{ flex: 1, fontSize: 11, color: isDarkMode ? '#9CA3AF' : '#6B7280' }} numberOfLines={2}>
-        📌 Pinned: {pinnedMessage.user}: {pinnedMessage.text}
+      <Ionicons name="pin" size={14} color="#4F6AF0" />
+      <Text style={{ flex: 1, fontSize: 11, color: isDarkMode ? '#94A3B8' : '#475569' }} numberOfLines={2}>
+        📌 {pinnedMessage.user}: {pinnedMessage.text}
       </Text>
-      <TouchableOpacity onPress={onUnpin}>
-        <Feather name="x" size={16} color={isDarkMode ? "#9CA3AF" : "#6B7280"} />
+      <TouchableOpacity
+        onPress={onUnpin}
+        style={{ width: 22, height: 22, borderRadius: 6, backgroundColor: isDarkMode ? '#263347' : '#F1F5F9', justifyContent: 'center', alignItems: 'center' }}
+      >
+        <Feather name="x" size={12} color={isDarkMode ? '#94A3B8' : '#475569'} />
       </TouchableOpacity>
     </View>
   );

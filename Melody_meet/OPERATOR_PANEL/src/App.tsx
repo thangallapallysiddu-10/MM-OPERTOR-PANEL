@@ -1,5 +1,5 @@
 import "../global.css";
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense, lazy } from 'react';
 import {
   View,
   SafeAreaView,
@@ -7,25 +7,23 @@ import {
   Dimensions,
   Platform,
   Text,
-  Alert,
   ActivityIndicator,
   StyleSheet,
   ScrollView,
 } from 'react-native';
 import { OperatorProvider } from './context/OperatorContext';
-import { AuthProvider } from './context/AuthContext';
+import { AuthProvider, useAuth } from './context/AuthContext';
 import { SessionTimer } from './components/SessionTimer';
 import Sidebar from './components/layout/Sidebar';
-import Dashboard from './pages/Dashboard';
-import RJStudio from './features/rj';
-import PodcastUpload from './features/podcast/PodcastUpload';
+const Dashboard = lazy(() => import('./pages/Dashboard'));
+const RJStudio = lazy(() => import('./features/rj'));
+const PodcastUpload = lazy(() => import('./features/podcast/PodcastUpload'));
 
-import Profile from './pages/Profile';
-import GuestRoom from './pages/GuestRoom';
-import Login from './pages/Login';
-import Signup from './pages/Signup';
+const Profile = lazy(() => import('./pages/Profile'));
+const GuestJoinPage = lazy(() => import('./pages/GuestJoinPage'));
+const Login = lazy(() => import('./pages/Login'));
+const Signup = lazy(() => import('./pages/Signup'));
 import { LogBox } from 'react-native';
-import { StorageService } from './services/storageService';
 
 const { width } = Dimensions.get('window');
 const isMobile = width < 768;
@@ -66,37 +64,49 @@ const InvalidRoomPage = () => (
 function AppContent({ onLogout }: { onLogout: () => Promise<void> }) {
   const [currentScreen, setCurrentScreen] = useState<string>('Dashboard');
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
-  const [guestRoomId, setGuestRoomId] = useState<string | undefined>(undefined);
-  const [pageState, setPageState] = useState<'host' | 'guest' | 'invalid'>('host');
+  const [pageState, setPageState] = useState<'host' | 'guest_slot' | 'invalid'>('host');
 
-  const guestNavigation = {
-    goBack: () => {
-      if (isWeb) {
-        document.body.innerHTML = `<!DOCTYPE html><html><head><title>Thank You</title><style>body{background:black;color:white;display:flex;justify-content:center;align-items:center;height:100vh;font-family:sans-serif;margin:0}.container{text-align:center}.emoji{font-size:80px;animation:bounce 1s infinite}h1{color:white}p{color:rgba(255,255,255,0.9)}@keyframes bounce{0%,100%{transform:translateY(0)}50%{transform:translateY(-10px)}}</style></head><body><div class="container"><div class="emoji">👋</div><h1>Thank You for Listening!</h1><p>You have successfully left the podcast room.</p></div></body></html>`;
-      } else {
-        Alert.alert('Thank You!', "You've left the podcast room.");
-      }
-    },
-    navigate: () => {},
-    getCurrentScreen: () => 'GuestRoom',
-    logout: onLogout,
-  };
+  // Guest slot state — parsed from /podcast/guest/:slotId/:roomId
+  const [guestSlotId, setGuestSlotId] = useState<string>('');
+  const [guestSlotRoomId, setGuestSlotRoomId] = useState<string>('');
 
   useEffect(() => {
     if (isWeb) {
+      const path = window.location.pathname;
       const urlParams = new URLSearchParams(window.location.search);
+
+      // New slot join URL: /podcast/guest/:slotId/:roomId
+      const slotMatch = path.match(/\/podcast\/guest\/([^/]+)\/([^/]+)/);
+      if (slotMatch) {
+        setGuestSlotId(slotMatch[1]);
+        setGuestSlotRoomId(slotMatch[2]);
+        setPageState('guest_slot');
+        return;
+      }
+
+      // Legacy ?roomId= listener links are no longer supported — use /podcast/guest/:slotId/:roomId
       const roomId = urlParams.get('roomId');
       if (roomId && roomId.trim() !== '') {
-        setGuestRoomId(roomId);
-        setPageState('guest');
+        setPageState('invalid');
       }
     }
   }, []);
 
-  if (pageState === 'guest' && guestRoomId) {
+  // ── Guest slot join page (no auth required) ────────────────────────────────
+  if (pageState === 'guest_slot') {
     return (
       <SafeAreaView style={styles.fullScreen}>
-        <GuestRoom route={{ params: { roomId: guestRoomId } }} navigation={guestNavigation} />
+        <Suspense fallback={<View style={styles.centered}><ActivityIndicator size="large" color="#4F6AF0" /></View>}>
+          <GuestJoinPage
+            slotId={guestSlotId}
+            roomId={guestSlotRoomId}
+            onLeave={() => {
+              if (isWeb) {
+                document.body.innerHTML = `<!DOCTYPE html><html><head><title>Thank You</title><style>body{background:#0F172A;color:white;display:flex;justify-content:center;align-items:center;height:100vh;font-family:sans-serif;margin:0}.c{text-align:center}.e{font-size:64px;margin-bottom:16px}h1{color:white;font-size:24px}p{color:#94A3B8;font-size:14px}</style></head><body><div class="c"><div class="e">👋</div><h1>Thanks for joining!</h1><p>You've left the podcast slot.</p></div></body></html>`;
+              }
+            }}
+          />
+        </Suspense>
       </SafeAreaView>
     );
   }
@@ -118,12 +128,12 @@ function AppContent({ onLogout }: { onLogout: () => Promise<void> }) {
 
   const renderScreen = () => {
     switch (currentScreen) {
-      case 'Dashboard': return <Dashboard navigation={navigation} />;
-      case 'RJStudio': return <RJStudio navigation={navigation} />;
-      case 'Podcast': return <PodcastUpload />;
+      case 'Dashboard': return <Suspense fallback={<View style={styles.centered}><ActivityIndicator size="large" color="#000000" /></View>}><Dashboard navigation={navigation} /></Suspense>;
+      case 'RJStudio': return <Suspense fallback={<View style={styles.centered}><ActivityIndicator size="large" color="#000000" /></View>}><RJStudio navigation={navigation} /></Suspense>;
+      case 'Podcast': return <Suspense fallback={<View style={styles.centered}><ActivityIndicator size="large" color="#000000" /></View>}><PodcastUpload /></Suspense>;
 
-      case 'Profile': return <Profile navigation={navigation} />;
-      default: return <Dashboard navigation={navigation} />;
+      case 'Profile': return <Suspense fallback={<View style={styles.centered}><ActivityIndicator size="large" color="#000000" /></View>}><Profile navigation={navigation} /></Suspense>;
+      default: return <Suspense fallback={<View style={styles.centered}><ActivityIndicator size="large" color="#000000" /></View>}><Dashboard navigation={navigation} /></Suspense>;
     }
   };
 
@@ -171,65 +181,55 @@ function AppContent({ onLogout }: { onLogout: () => Promise<void> }) {
 }
 
 function AuthWrapper() {
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const { isAuthenticated, isLoading, reloadSession, logout, user } = useAuth();
   const [currentAuthScreen, setCurrentAuthScreen] = useState<'login' | 'signup'>('login');
-  const [loading, setLoading] = useState(true);
-  const guestRoomId =
+
+  const legacyRoomId =
     isWeb && typeof window !== 'undefined'
       ? new URLSearchParams(window.location.search).get('roomId') || undefined
       : undefined;
 
-  const guestNavigation = {
-    goBack: () => {
-      if (isWeb && typeof window !== 'undefined') {
-        window.location.href = window.location.origin;
-      } else {
-        Alert.alert('Thank You!', "You've left the podcast room.");
-      }
-    },
-    navigate: () => {},
-    getCurrentScreen: () => 'GuestRoom',
-    logout: async () => {},
-  };
+  // Guest slot join: /podcast/guest/:slotId/:roomId — no auth needed
+  const guestSlotMatch =
+    isWeb && typeof window !== 'undefined'
+      ? window.location.pathname.match(/\/podcast\/guest\/([^/]+)\/([^/]+)/)
+      : null;
 
-  useEffect(() => {
-    const checkAuth = async () => {
-      const auth = await StorageService.isLoggedIn();
-      const user = await StorageService.getUser();
+  if (guestSlotMatch) {
+    return (
+      <SafeAreaView style={styles.fullScreen}>
+        <Suspense fallback={<View style={styles.centered}><ActivityIndicator size="large" color="#4F6AF0" /></View>}>
+          <GuestJoinPage
+            slotId={guestSlotMatch[1]}
+            roomId={guestSlotMatch[2]}
+            onLeave={() => {
+              if (isWeb && typeof window !== 'undefined') {
+                document.body.innerHTML = `<!DOCTYPE html><html><head><title>Thank You</title><style>body{background:#0F172A;color:white;display:flex;justify-content:center;align-items:center;height:100vh;font-family:sans-serif;margin:0}.c{text-align:center}.e{font-size:64px;margin-bottom:16px}h1{color:white;font-size:24px}p{color:#94A3B8;font-size:14px}</style></head><body><div class="c"><div class="e">👋</div><h1>Thanks for joining!</h1><p>You've left the podcast slot.</p></div></body></html>`;
+              }
+            }}
+          />
+        </Suspense>
+      </SafeAreaView>
+    );
+  }
 
-      if (auth && user) {
-        console.log('✅ Valid session found');
-        setIsLoggedIn(true);
-      } else {
-        await StorageService.clearAll();
-        setIsLoggedIn(false);
-      }
-      setLoading(false);
-    };
-    
-    checkAuth();
-  }, []);
-
-  const handleLoginSuccess = () => {
-    console.log('✅ Login success! Setting isLoggedIn to true');
-    setIsLoggedIn(true);
+  const handleLoginSuccess = async () => {
+    await reloadSession();
   };
 
   const handleLogout = async () => {
-    await StorageService.clearAll();
-    setIsLoggedIn(false);
-    console.log('✅ Logged out, returning to login screen');
+    await logout();
   };
 
-  if (loading) {
-    if (guestRoomId) {
-      return (
-        <SafeAreaView style={styles.fullScreen}>
-          <GuestRoom route={{ params: { roomId: guestRoomId } }} navigation={guestNavigation} />
-        </SafeAreaView>
-      );
-    }
+  if (legacyRoomId) {
+    return (
+      <SafeAreaView style={styles.fullScreen}>
+        <InvalidRoomPage />
+      </SafeAreaView>
+    );
+  }
 
+  if (isLoading) {
     return (
       <View style={styles.centered}>
         <ActivityIndicator size="large" color="#000000" />
@@ -238,31 +238,27 @@ function AuthWrapper() {
     );
   }
 
-  if (guestRoomId) {
-    return (
-      <SafeAreaView style={styles.fullScreen}>
-        <GuestRoom route={{ params: { roomId: guestRoomId } }} navigation={guestNavigation} />
-      </SafeAreaView>
-    );
-  }
-
-  if (isLoggedIn) {
+  if (isAuthenticated) {
     return <AppContent onLogout={handleLogout} />;
   }
 
   if (currentAuthScreen === 'login') {
     return (
-      <Login 
-        onSwitchToSignup={() => setCurrentAuthScreen('signup')} 
-        onLoginSuccess={handleLoginSuccess}
-      />
+      <Suspense fallback={<View style={styles.centered}><ActivityIndicator size="large" color="#000000" /></View>}>
+        <Login
+          onSwitchToSignup={() => setCurrentAuthScreen('signup')}
+          onLoginSuccess={handleLoginSuccess}
+        />
+      </Suspense>
     );
   }
 
   return (
-    <Signup 
-      onSwitchToLogin={() => setCurrentAuthScreen('login')} 
-    />
+    <Suspense fallback={<View style={styles.centered}><ActivityIndicator size="large" color="#000000" /></View>}>
+      <Signup
+        onSwitchToLogin={() => setCurrentAuthScreen('login')}
+      />
+    </Suspense>
   );
 }
 
@@ -322,6 +318,8 @@ const styles = StyleSheet.create({
 export default function App() {
   LogBox.ignoreLogs([
     'expo-av has been deprecated',
+    '[expo-av]: Expo AV has been deprecated',
+    'props.pointerEvents is deprecated',
     'VirtualizedLists should never be nested',
   ]);
 

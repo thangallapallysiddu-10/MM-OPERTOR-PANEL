@@ -1,4 +1,3 @@
-// hooks/useLiveStream.ts
 import { useState, useRef, useEffect } from 'react';
 import { Platform, Alert } from 'react-native';
 import { useAppStore } from '../../../store/useAppStore';
@@ -78,11 +77,26 @@ export const useLiveStream = () => {
   
   const roomLink = podcast.roomLink || '';
 
-  // Generate room link only once
+  // Generate room link only once, then immediately seed guest slot URLs
+  // so Copy Link works before Go Live.
   useEffect(() => {
     if (!roomLink) {
       const generatedRoomId = Math.random().toString(36).substring(2, 10).toUpperCase();
-      updatePodcastState({ roomLink: buildGuestRoomLink(generatedRoomId) });
+      const newRoomLink = buildGuestRoomLink(generatedRoomId);
+      updatePodcastState({ roomLink: newRoomLink });
+
+      // Seed pre-live slot URLs using the same /podcast/guest/:slotId/:roomId shape.
+      // No backend call needed — we build the URLs directly from the known roomId.
+      const base =
+        Platform.OS === 'web' && typeof window !== 'undefined'
+          ? window.location.origin
+          : '';
+      const store = useAppStore.getState();
+      const seededSlots = store.podcast.guestSlots.map((slot) => ({
+        ...slot,
+        url: `${base}/podcast/guest/${slot.slotId}/${generatedRoomId}`,
+      }));
+      store.setGuestSlots(seededSlots);
     }
   }, []);
 
@@ -99,6 +113,8 @@ export const useLiveStream = () => {
       
       liveViewerIntervalRef.current = setInterval(() => {
         const currentPodcast = useAppStore.getState().podcast;
+        // Guard: do not poll if live session has already ended.
+        if (!currentPodcast.isLive) return;
         const roomIdMatch = currentPodcast.roomLink.match(/roomId=([A-Z0-9]+)/i);
         const roomId = roomIdMatch ? roomIdMatch[1] : null;
         if (roomId) {
@@ -184,17 +200,34 @@ export const useLiveStream = () => {
       const roomId = roomIdMatch ? roomIdMatch[1] : Math.random().toString(36).substring(2, 10).toUpperCase();
       const activeRoomLink = roomLink || buildGuestRoomLink(roomId);
 
-      // Persist live session to backend (best-effort)
+      // Persist live session to backend.
+      // This MUST succeed — if no backend session row exists, guests cannot join
+      // (joinGuestSlot enforces status='live') and the operator UI would be out
+      // of sync with the backend. Do NOT swallow this error.
+      await PodcastApi.startLiveSession({
+        title: liveTitle,
+        description: liveDescription || '',
+        roomId,
+        roomLink: activeRoomLink,
+        host: 'Operator',
+      });
+
+      // Generate shareable guest slot links (MIC 2–5) — best-effort only.
+      // If this fails, the operator can still copy links manually.
       try {
-        await PodcastApi.startLiveSession({
-          title: liveTitle,
-          description: liveDescription || '',
-          roomId,
-          roomLink: activeRoomLink,
-          host: 'Operator',
+        const baseUrl =
+          Platform.OS === 'web' && typeof window !== 'undefined'
+            ? window.location.origin
+            : '';
+        const links = await PodcastApi.generateGuestLinks({ roomId, baseUrl });
+        const store = useAppStore.getState();
+        const updatedSlots = store.podcast.guestSlots.map((slot) => {
+          const found = links.find((l) => l.slotId === slot.slotId);
+          return found ? { ...slot, url: found.url } : slot;
         });
+        store.setGuestSlots(updatedSlots);
       } catch (_) {
-        // Backend unreachable — continue anyway so the live UI still works
+        // Links are optional — operator can still Copy Link manually
       }
 
       setIsLive(true);
@@ -217,6 +250,18 @@ export const useLiveStream = () => {
   // Stop live stream for WEB and MOBILE
   const stopLiveStream = () => {
     const confirmStop = async () => {
+      // Clear both intervals immediately — before any async work.
+      // This prevents the viewer-poll interval from firing against a session
+      // that is about to be (or has just been) ended on the backend.
+      if (liveTimerIntervalRef.current) {
+        clearInterval(liveTimerIntervalRef.current);
+        liveTimerIntervalRef.current = null;
+      }
+      if (liveViewerIntervalRef.current) {
+        clearInterval(liveViewerIntervalRef.current);
+        liveViewerIntervalRef.current = null;
+      }
+
       // Stop all audio tracks
       if (mediaStream) {
         mediaStream.getTracks().forEach((track: any) => { track.stop(); });
@@ -336,5 +381,7 @@ export const useLiveStream = () => {
     proceedToReady,
     setShowLiveSetup,
     setLiveSetupStep,
+    // Exposed for usePeerConnections — operator mic stream used as the host audio track
+    mediaStream,
   };
 };

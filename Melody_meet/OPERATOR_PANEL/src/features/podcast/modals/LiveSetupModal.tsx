@@ -55,8 +55,11 @@ export const LiveSetupModal: React.FC<LiveSetupModalProps> = ({
         <View style={[styles.modalContent, { backgroundColor: colors.card, borderColor: colors.cardBorder, borderWidth: 1 }]}>
           <View style={styles.modalHeader}>
             <Text style={[styles.modalTitle, { color: colors.text }]}>Go Live</Text>
-            <TouchableOpacity onPress={onClose}>
-              <Feather name="x" size={24} color={colors.textMuted} />
+            <TouchableOpacity
+              onPress={onClose}
+              style={{ width: 30, height: 30, borderRadius: 8, backgroundColor: colors.surface, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: colors.cardBorder }}
+            >
+              <Feather name="x" size={15} color={colors.textMuted} />
             </TouchableOpacity>
           </View>
 
@@ -131,7 +134,7 @@ export const LiveSetupModal: React.FC<LiveSetupModalProps> = ({
             <>
               <View style={styles.readyContainer}>
                 <View style={styles.readyIcon}>
-                  <Feather name="check-circle" size={60} color={colors.textSecondary} />
+                  <Feather name="check-circle" size={40} color="#059669" />
                 </View>
                 <Text style={[styles.readyTitle, { color: colors.text }]}>Ready to Go Live!</Text>
                 <Text style={[styles.readySubtitle, { color: colors.textMuted }]}>"{liveTitle}"</Text>
@@ -142,15 +145,15 @@ export const LiveSetupModal: React.FC<LiveSetupModalProps> = ({
 
               <TouchableOpacity
                 onPress={onStartLive}
-                style={[styles.liveStartButton, { backgroundColor: colors.text }]}
+                style={styles.liveStartButton}
                 disabled={loading}
               >
                 {loading ? (
-                  <ActivityIndicator color={colors.background} size="small" />
+                  <ActivityIndicator color="#FFFFFF" size="small" />
                 ) : (
                   <>
-                    <Feather name="radio" size={20} color={colors.background} />
-                    <Text style={[styles.liveStartButtonText, { color: colors.background }]}>Start Live Now!</Text>
+                    <Feather name="radio" size={18} color="#FFFFFF" />
+                    <Text style={styles.liveStartButtonText}>Start Live Now!</Text>
                   </>
                 )}
               </TouchableOpacity>
@@ -169,16 +172,21 @@ export const LiveSetupModal: React.FC<LiveSetupModalProps> = ({
 const styles = StyleSheet.create({
   modalOverlay: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.85)",
+    backgroundColor: "rgba(0,0,0,0.55)",
     justifyContent: "center",
     alignItems: "center",
   },
   modalContent: {
-    borderRadius: 20,
+    borderRadius: 16,
     padding: 20,
-    width: Platform.OS === 'web' ? 500 : "90%",
-    maxWidth: 500,
+    width: Platform.OS === 'web' ? 480 : "90%",
+    maxWidth: 480,
     maxHeight: Platform.OS === 'web' ? "90%" : "85%",
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 16,
+    elevation: 8,
   },
   modalHeader: {
     flexDirection: "row",
@@ -187,17 +195,18 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   modalTitle: {
-    fontSize: 18,
-    fontWeight: "bold",
+    fontSize: 17,
+    fontWeight: "700",
   },
   liveSetupTitle: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: "600",
-    marginBottom: 16,
+    marginBottom: 14,
     textAlign: "center",
+    letterSpacing: 0.3,
   },
   liveTestItem: {
-    marginBottom: 20,
+    marginBottom: 16,
   },
   liveTestHeader: {
     flexDirection: "row",
@@ -206,13 +215,13 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   liveTestLabel: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: "500",
     flex: 1,
   },
   liveTestButton: {
     borderWidth: 1,
-    borderRadius: 8,
+    borderRadius: 10,
     padding: 10,
     alignItems: "center",
   },
@@ -221,65 +230,72 @@ const styles = StyleSheet.create({
     fontWeight: "500",
   },
   liveNextButton: {
-    padding: 14,
-    borderRadius: 25,
+    padding: 13,
+    borderRadius: 12,
     alignItems: "center",
-    marginTop: 16,
+    marginTop: 12,
+    backgroundColor: '#4F6AF0',
   },
   liveNextButtonText: {
-    fontSize: 16,
-    fontWeight: "bold",
+    fontSize: 15,
+    fontWeight: "700",
+    color: '#FFFFFF',
   },
   readyContainer: {
     alignItems: "center",
-    paddingVertical: 20,
+    paddingVertical: 16,
   },
   readyIcon: {
-    marginBottom: 16,
+    width: 72, height: 72, borderRadius: 36,
+    backgroundColor: '#ECFDF5',
+    justifyContent: 'center', alignItems: 'center',
+    marginBottom: 14,
   },
   readyTitle: {
-    fontSize: 20,
-    fontWeight: "bold",
-    marginBottom: 8,
+    fontSize: 18,
+    fontWeight: "700",
+    marginBottom: 6,
   },
   readySubtitle: {
-    fontSize: 14,
+    fontSize: 13,
     textAlign: "center",
-    marginBottom: 4,
+    marginBottom: 3,
   },
   liveStartButton: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
-    padding: 14,
-    borderRadius: 30,
-    marginTop: 16,
+    padding: 13,
+    borderRadius: 12,
+    marginTop: 14,
+    backgroundColor: '#4F6AF0',
   },
   liveStartButtonText: {
-    fontSize: 16,
-    fontWeight: "bold",
+    fontSize: 15,
+    fontWeight: "700",
+    color: '#FFFFFF',
   },
   liveBackButton: {
     borderWidth: 1,
-    borderRadius: 25,
+    borderRadius: 12,
     paddingVertical: 10,
     alignItems: "center",
-    marginTop: 12,
+    marginTop: 10,
   },
   liveBackButtonText: {
-    fontSize: 14,
+    fontSize: 13,
   },
   input: {
     borderWidth: 1,
     borderRadius: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
+    paddingHorizontal: 13,
+    paddingVertical: 11,
     fontSize: 14,
-    marginBottom: 12,
+    marginBottom: 10,
   },
   textArea: {
-    minHeight: 80,
+    minHeight: 72,
     textAlignVertical: "top",
   },
 });

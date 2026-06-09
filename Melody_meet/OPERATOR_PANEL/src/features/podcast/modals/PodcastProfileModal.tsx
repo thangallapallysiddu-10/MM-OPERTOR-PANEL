@@ -24,20 +24,37 @@ const PodcastProfileModal: React.FC<PodcastProfileModalProps> = ({
 }) => {
   return (
     <Modal visible={visible} transparent={true} animationType="fade" onRequestClose={onClose}>
-      <TouchableOpacity className="items-end justify-start flex-1 pt-20 pr-4 bg-black/70" activeOpacity={1} onPress={onClose}>
-        <View className={`${isMobile ? 'w-[280px]' : 'w-[320px]'} rounded-2xl p-4 border shadow-md ${isDarkMode ? 'bg-[#1E1E1E] border-[#333333]' : 'bg-white border-[#E0E0E0]'}`}>
-          
-          {/* User Info Only */}
-          <View className="flex-row items-center gap-3">
-            <View className={`w-12 h-12 rounded-full justify-center items-center ${isDarkMode ? 'bg-white/10' : 'bg-black/10'}`}>
-              <Text className={`text-xl font-bold ${isDarkMode ? 'text-white' : 'text-black'}`}>{userAvatar}</Text>
+      <TouchableOpacity
+        style={{ flex: 1, alignItems: 'flex-end', justifyContent: 'flex-start', paddingTop: 80, paddingRight: 16, backgroundColor: 'rgba(0,0,0,0.4)' }}
+        activeOpacity={1}
+        onPress={onClose}
+      >
+        <View style={{
+          width: isMobile ? 280 : 310,
+          borderRadius: 14,
+          padding: 14,
+          borderWidth: 1,
+          backgroundColor: isDarkMode ? '#1E293B' : '#FFFFFF',
+          borderColor: isDarkMode ? '#334155' : '#E2E8F0',
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 4 },
+          shadowOpacity: isDarkMode ? 0.25 : 0.08,
+          shadowRadius: 12,
+          elevation: 6,
+        }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+            <View style={{
+              width: 46, height: 46, borderRadius: 12,
+              backgroundColor: isDarkMode ? '#1E3A8A' : '#EEF2FF',
+              justifyContent: 'center', alignItems: 'center',
+            }}>
+              <Text style={{ fontSize: 20, fontWeight: '700', color: isDarkMode ? '#6B8EFF' : '#4F6AF0' }}>{userAvatar}</Text>
             </View>
-            <View>
-              <Text className={`text-base font-semibold ${isDarkMode ? 'text-white' : 'text-black'}`}>{userName}</Text>
-              <Text className={`text-xs mt-0.5 ${isDarkMode ? 'text-[#888888]' : 'text-[#999999]'}`}>{userEmail}</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontSize: 15, fontWeight: '700', color: isDarkMode ? '#F1F5F9' : '#0F172A' }}>{userName}</Text>
+              <Text style={{ fontSize: 12, marginTop: 2, color: isDarkMode ? '#64748B' : '#94A3B8' }}>{userEmail}</Text>
             </View>
           </View>
-
         </View>
       </TouchableOpacity>
     </Modal>

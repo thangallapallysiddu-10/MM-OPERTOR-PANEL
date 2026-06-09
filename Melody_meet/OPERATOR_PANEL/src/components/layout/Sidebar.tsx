@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -12,40 +12,38 @@ import { Feather } from '@expo/vector-icons';
 
 const { width } = Dimensions.get('window');
 const isMobile = width < 768;
-const SIDEBAR_WIDTH = 220;
-const COLLAPSED_WIDTH = 70;
+const SIDEBAR_WIDTH = 224;
+const COLLAPSED_WIDTH = 68;
 
-// Dashboard Clean Black & White Theme
+// ─── Design tokens aligned with MelodyMeet system ────────────────────────────
 const lightTheme = {
   background: "#FFFFFF",
-  surface: "#FFFFFF",
-  card: "#FFFFFF",
-  cardBorder: "#000000",
-  text: "#000000",
-  textSecondary: "#000000",
-  textMuted: "#000000",
-  primary: "#000000",
-  secondary: "#000000",
-  accent: "#000000",
-  success: "#000000",
-  warning: "#000000",
-  danger: "#000000",
+  border: "#E2E8F0",
+  text: "#0F172A",
+  textSec: "#475569",
+  textMuted: "#94A3B8",
+  activeBg: "#EEF2FF",
+  activeText: "#4F6AF0",
+  activeIndicator: "#4F6AF0",
+  hoverBg: "#F8FAFC",
+  iconBg: "#F1F5F9",
+  logoBg: "#EEF2FF",
+  logoText: "#4F6AF0",
 };
 
 const darkTheme = {
-  background: "#000000",
-  surface: "#000000",
-  card: "#000000",
-  cardBorder: "#FFFFFF",
-  text: "#FFFFFF",
-  textSecondary: "#FFFFFF",
-  textMuted: "#FFFFFF",
-  primary: "#FFFFFF",
-  secondary: "#FFFFFF",
-  accent: "#FFFFFF",
-  success: "#FFFFFF",
-  warning: "#FFFFFF",
-  danger: "#FFFFFF",
+  background: "#1E293B",
+  border: "#334155",
+  text: "#F1F5F9",
+  textSec: "#94A3B8",
+  textMuted: "#64748B",
+  activeBg: "#1E3A8A",
+  activeText: "#6B8EFF",
+  activeIndicator: "#6B8EFF",
+  hoverBg: "#263347",
+  iconBg: "#263347",
+  logoBg: "#1E3A8A",
+  logoText: "#6B8EFF",
 };
 
 interface SidebarProps {
@@ -55,6 +53,13 @@ interface SidebarProps {
   isDarkMode?: boolean;
 }
 
+const menuItems = [
+  { name: 'Dashboard',  icon: 'home' as const,       label: 'Dashboard' },
+  { name: 'Podcast',    icon: 'headphones' as const,  label: 'Podcast' },
+  { name: 'RJStudio',   icon: 'mic' as const,         label: 'RJ Studio' },
+  { name: 'Profile',    icon: 'user' as const,        label: 'Profile' },
+];
+
 const Sidebar: React.FC<SidebarProps> = ({
   currentScreen,
   onNavigate,
@@ -63,140 +68,166 @@ const Sidebar: React.FC<SidebarProps> = ({
 }) => {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [sidebarWidth] = useState(new Animated.Value(SIDEBAR_WIDTH));
-  const colors = isDarkMode ? darkTheme : lightTheme;
+  const t = isDarkMode ? darkTheme : lightTheme;
 
   const toggleSidebar = () => {
-    const newCollapsedState = !isCollapsed;
+    const next = !isCollapsed;
     Animated.timing(sidebarWidth, {
-      toValue: newCollapsedState ? COLLAPSED_WIDTH : SIDEBAR_WIDTH,
-      duration: 250,
+      toValue: next ? COLLAPSED_WIDTH : SIDEBAR_WIDTH,
+      duration: 220,
       useNativeDriver: false,
     }).start();
-    setIsCollapsed(newCollapsedState);
-    if (onCollapseChange) {
-      onCollapseChange(newCollapsedState);
-    }
+    setIsCollapsed(next);
+    onCollapseChange?.(next);
   };
 
-  const menuItems = [
-    { name: 'Dashboard', icon: 'home', color: colors.text },
-    { name: 'Podcast', icon: 'headphones', color: colors.textSecondary },
-    { name: 'RJStudio', displayName: 'RJ Studio', icon: 'mic', color: colors.textSecondary },
-
-    { name: 'Profile', icon: 'user', color: colors.textSecondary },
-  ];
-
-  // On mobile, always show bottom navigation instead
+  // ── Mobile: Bottom tab bar ────────────────────────────────────────────────
   if (isMobile) {
     return (
-      <View style={[styles.mobileBottomNav, { backgroundColor: colors.background, borderTopColor: colors.cardBorder }]}>
-        {menuItems.map((item) => (
-          <TouchableOpacity
-            key={item.name}
-            style={[
-              styles.mobileNavItem,
-              currentScreen === item.name && [styles.mobileNavItemActive, { backgroundColor: `${colors.text}15` }],
-            ]}
-            onPress={() => onNavigate(item.name)}
-            activeOpacity={0.7}
-          >
-            <Feather
-              name={item.icon as any}
-              size={22}
-              color={currentScreen === item.name ? colors.text : colors.textMuted}
-            />
-            <Text
-              style={[
-                styles.mobileNavLabel,
-                { color: currentScreen === item.name ? colors.text : colors.textMuted },
-              ]}
+      <View style={[styles.mobileNav, {
+        backgroundColor: t.background,
+        borderTopColor: t.border,
+      }]}>
+        {menuItems.map((item) => {
+          const active = currentScreen === item.name;
+          return (
+            <TouchableOpacity
+              key={item.name}
+              style={styles.mobileNavItem}
+              onPress={() => onNavigate(item.name)}
+              activeOpacity={0.7}
             >
-              {item.displayName || item.name}
-            </Text>
-          </TouchableOpacity>
-        ))}
+              <View style={[
+                styles.mobileIconWrap,
+                active && { backgroundColor: t.activeBg },
+              ]}>
+                <Feather
+                  name={item.icon}
+                  size={20}
+                  color={active ? t.activeText : t.textMuted}
+                />
+              </View>
+              <Text style={[
+                styles.mobileLabel,
+                { color: active ? t.activeText : t.textMuted },
+                active && { fontWeight: '600' },
+              ]}>
+                {item.label}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
       </View>
     );
   }
 
-  // Desktop: Collapsible sidebar
+  // ── Desktop: Collapsible sidebar ──────────────────────────────────────────
   return (
-    <Animated.View style={[styles.desktopSidebar, { width: sidebarWidth, backgroundColor: colors.background, borderRightColor: colors.cardBorder }]}>
-      {/* Toggle Button */}
-      <TouchableOpacity 
-        style={[styles.toggleButton, { backgroundColor: colors.background, borderColor: colors.cardBorder }]} 
+    <Animated.View style={[styles.sidebar, {
+      width: sidebarWidth,
+      backgroundColor: t.background,
+      borderRightColor: t.border,
+    }]}>
+      {/* Collapse toggle */}
+      <TouchableOpacity
+        style={[styles.toggleBtn, {
+          backgroundColor: t.background,
+          borderColor: t.border,
+        }]}
         onPress={toggleSidebar}
+        activeOpacity={0.8}
       >
-        <Feather name={isCollapsed ? 'chevron-right' : 'chevron-left'} size={20} color={colors.textSecondary} />
+        <Feather
+          name={isCollapsed ? 'chevron-right' : 'chevron-left'}
+          size={14}
+          color={t.textMuted}
+        />
       </TouchableOpacity>
 
       {/* Logo */}
-      <View style={[styles.logoContainer, { borderBottomColor: `${colors.text}10` }]}>
-        <View style={[styles.logoIcon, { backgroundColor: `${colors.text}15` }]}>
-          <Feather name="radio" size={isCollapsed ? 24 : 28} color={colors.text} />
+      <View style={[styles.logoRow, { borderBottomColor: t.border }]}>
+        <View style={[styles.logoIcon, { backgroundColor: t.logoBg }]}>
+          <Feather name="radio" size={isCollapsed ? 20 : 22} color={t.logoText} />
         </View>
-        {!isCollapsed && <Text style={[styles.logoText, { color: colors.text }]}>Operator Panel</Text>}
+        {!isCollapsed && (
+          <View style={{ flex: 1, marginLeft: 10 }}>
+            <Text style={[styles.logoTitle, { color: t.text }]}>MelodyMeet</Text>
+            <Text style={[styles.logoSub, { color: t.textMuted }]}>Operator</Text>
+          </View>
+        )}
       </View>
 
-      {/* Menu Items */}
-      <View style={styles.menuContainer}>
-        {menuItems.map((item) => (
-          <TouchableOpacity
-            key={item.name}
-            style={[
-              styles.menuItem,
-              currentScreen === item.name && [styles.menuItemActive, { backgroundColor: `${colors.text}10` }],
-              isCollapsed && styles.menuItemCollapsed,
-            ]}
-            onPress={() => onNavigate(item.name)}
-            activeOpacity={0.7}
-          >
-            <View style={[styles.iconContainer, { backgroundColor: `${item.color}15` }]}>
-              <Feather name={item.icon as any} size={20} color={item.color} />
-            </View>
-            {!isCollapsed && (
-              <Text
-                style={[
-                  styles.menuText,
-                  { color: currentScreen === item.name ? colors.text : colors.textSecondary },
-                  currentScreen === item.name && styles.menuTextActive,
-                ]}
-              >
-                {item.displayName || item.name}
-              </Text>
-            )}
-            {currentScreen === item.name && !isCollapsed && (
-              <View style={[styles.activeIndicator, { backgroundColor: colors.text }]} />
-            )}
-          </TouchableOpacity>
-        ))}
+      {/* Menu */}
+      <View style={styles.menu}>
+        {menuItems.map((item) => {
+          const active = currentScreen === item.name;
+          return (
+            <TouchableOpacity
+              key={item.name}
+              style={[
+                styles.menuItem,
+                isCollapsed && styles.menuItemCollapsed,
+                active && [styles.menuItemActive, { backgroundColor: t.activeBg }],
+              ]}
+              onPress={() => onNavigate(item.name)}
+              activeOpacity={0.7}
+            >
+              {/* Active left bar */}
+              {active && !isCollapsed && (
+                <View style={[styles.activeBar, { backgroundColor: t.activeIndicator }]} />
+              )}
+
+              <View style={[
+                styles.iconWrap,
+                { backgroundColor: active ? 'transparent' : t.iconBg },
+              ]}>
+                <Feather
+                  name={item.icon}
+                  size={18}
+                  color={active ? t.activeText : t.textSec}
+                />
+              </View>
+
+              {!isCollapsed && (
+                <Text style={[
+                  styles.menuLabel,
+                  { color: active ? t.activeText : t.textSec },
+                  active && { fontWeight: '600' },
+                ]}>
+                  {item.label}
+                </Text>
+              )}
+            </TouchableOpacity>
+          );
+        })}
       </View>
 
-      <View style={[styles.bottomSection, { borderTopColor: `${colors.text}10` }]} />
+      {/* Bottom filler */}
+      <View style={[styles.bottomDivider, { borderTopColor: t.border }]} />
     </Animated.View>
   );
 };
 
 const styles = StyleSheet.create({
-  // Desktop Sidebar
-  desktopSidebar: {
+  // Desktop
+  sidebar: {
     position: 'absolute',
     left: 0,
     top: 0,
     bottom: 0,
     borderRightWidth: 1,
-    paddingTop: Platform.OS === 'web' ? 20 : 50,
+    paddingTop: Platform.OS === 'web' ? 16 : 48,
     zIndex: 100,
     shadowColor: '#000',
     shadowOffset: { width: 2, height: 0 },
-    shadowOpacity: 0.05,
+    shadowOpacity: 0.04,
     shadowRadius: 8,
-    elevation: 2,
+    elevation: 3,
   },
-  toggleButton: {
+  toggleBtn: {
     position: 'absolute',
     right: -12,
-    top: 30,
+    top: 28,
     width: 24,
     height: 24,
     borderRadius: 12,
@@ -206,103 +237,109 @@ const styles = StyleSheet.create({
     zIndex: 101,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
     elevation: 2,
   },
-  logoContainer: {
+  logoRow: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 16,
-    paddingVertical: 24,
+    paddingVertical: 20,
     borderBottomWidth: 1,
-    marginBottom: 24,
+    marginBottom: 12,
   },
   logoIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  logoText: {
-    fontSize: 16,
-    fontWeight: '700',
-    marginLeft: 12,
-  },
-  menuContainer: {
-    flex: 1,
-    paddingHorizontal: 12,
-  },
-  menuItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 12,
-    borderRadius: 12,
-    marginBottom: 8,
-    position: 'relative',
-  },
-  menuItemCollapsed: {
-    justifyContent: 'center',
-    paddingHorizontal: 0,
-  },
-  menuItemActive: {
-    backgroundColor: '#F3F4F6',
-  },
-  iconContainer: {
     width: 36,
     height: 36,
     borderRadius: 10,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  menuText: {
+  logoTitle: {
     fontSize: 14,
+    fontWeight: '700',
+    letterSpacing: -0.3,
+  },
+  logoSub: {
+    fontSize: 11,
     fontWeight: '500',
-    marginLeft: 12,
+    marginTop: 1,
   },
-  menuTextActive: {
-    fontWeight: '600',
+  menu: {
+    flex: 1,
+    paddingHorizontal: 10,
+    gap: 2,
   },
-  activeIndicator: {
+  menuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 10,
+    borderRadius: 10,
+    marginBottom: 2,
+    position: 'relative',
+    overflow: 'hidden',
+  },
+  menuItemCollapsed: {
+    justifyContent: 'center',
+    paddingHorizontal: 0,
+  },
+  menuItemActive: {},
+  activeBar: {
     position: 'absolute',
-    right: 12,
-    width: 4,
-    height: 24,
+    left: 0,
+    top: 8,
+    bottom: 8,
+    width: 3,
     borderRadius: 2,
   },
-  bottomSection: {
+  iconWrap: {
+    width: 34,
+    height: 34,
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  menuLabel: {
+    fontSize: 13.5,
+    fontWeight: '500',
+    marginLeft: 10,
+  },
+  bottomDivider: {
     paddingHorizontal: 12,
-    paddingBottom: 24,
+    paddingBottom: 20,
     borderTopWidth: 1,
-    paddingTop: 16,
+    paddingTop: 12,
   },
 
-  // Mobile Bottom Navigation
-  mobileBottomNav: {
+  // Mobile bottom nav
+  mobileNav: {
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
     flexDirection: 'row',
     borderTopWidth: 1,
-    paddingVertical: 8,
-    paddingBottom: Platform.OS === 'ios' ? 28 : 12,
+    paddingVertical: 6,
+    paddingBottom: Platform.OS === 'ios' ? 24 : 8,
     zIndex: 100,
   },
   mobileNavItem: {
     flex: 1,
     alignItems: 'center',
-    paddingVertical: 8,
+    paddingVertical: 4,
   },
-  mobileNavItemActive: {
+  mobileIconWrap: {
+    width: 38,
+    height: 30,
     borderRadius: 8,
-    marginHorizontal: 4,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 2,
   },
-  mobileNavLabel: {
+  mobileLabel: {
     fontSize: 10,
-    marginTop: 4,
     fontWeight: '500',
   },
 });

@@ -3,14 +3,14 @@ import { View, Text, TouchableOpacity, Modal } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 
 const stickerSets = [
-  { id: 1, emoji: "🎉", name: "Party" },
-  { id: 2, emoji: "🎈", name: "Balloon" },
-  { id: 3, emoji: "🎀", name: "Ribbon" },
-  { id: 4, emoji: "💎", name: "Diamond" },
-  { id: 5, emoji: "🌟", name: "Star" },
-  { id: 6, emoji: "💥", name: "Explosion" },
-  { id: 7, emoji: "⚡", name: "Lightning" },
-  { id: 8, emoji: "💫", name: "Sparkle" },
+  { id: 1, emoji: "🙌", name: "Hype" },
+  { id: 2, emoji: "😂", name: "Laugh" },
+  { id: 3, emoji: "😮", name: "Shock" },
+  { id: 4, emoji: "🕺", name: "Vibe" },
+  { id: 5, emoji: "🎧", name: "Headphones" },
+  { id: 6, emoji: "🎶", name: "Notes" },
+  { id: 7, emoji: "🐐", name: "GOAT" },
+  { id: 8, emoji: "✨", name: "Sparkle" },
 ];
 
 interface StickerModalProps {
@@ -37,32 +37,36 @@ export const StickerModal: React.FC<StickerModalProps> = ({
           borderRadius: 16,
           borderWidth: 1,
           padding: 20,
-          backgroundColor: isDarkMode ? '#1F2937' : '#FFFFFF',
-          borderColor: isDarkMode ? '#374151' : '#E5E7EB',
+          backgroundColor: isDarkMode ? '#1E293B' : '#FFFFFF',
+          borderColor: isDarkMode ? '#334155' : '#E2E8F0',
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 4 },
+          shadowOpacity: isDarkMode ? 0.3 : 0.08,
+          shadowRadius: 16,
+          elevation: 8,
         }}>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-            <Text style={{ fontSize: 18, fontWeight: 'bold', color: isDarkMode ? '#FFFFFF' : '#000000' }}>Send a Sticker 🎨</Text>
-            <TouchableOpacity onPress={onClose}>
-              <Feather name="x" size={24} color={isDarkMode ? "#9CA3AF" : "#6B7280"} />
+            <Text style={{ fontSize: 17, fontWeight: '700', color: isDarkMode ? '#F1F5F9' : '#0F172A' }}>Send a Sticker 🎨</Text>
+            <TouchableOpacity
+              onPress={onClose}
+              style={{ width: 30, height: 30, borderRadius: 8, backgroundColor: isDarkMode ? '#263347' : '#F1F5F9', justifyContent: 'center', alignItems: 'center' }}
+            >
+              <Feather name="x" size={15} color={isDarkMode ? '#94A3B8' : '#475569'} />
             </TouchableOpacity>
           </View>
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 14, justifyContent: 'center' }}>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12, justifyContent: 'center' }}>
             {stickerSets.map((sticker) => (
-              <TouchableOpacity 
-                key={sticker.id} 
+              <TouchableOpacity
+                key={sticker.id}
                 style={{
-                  alignItems: 'center',
-                  padding: 14,
-                  borderRadius: 14,
-                  minWidth: 80,
-                  backgroundColor: isDarkMode ? '#374151' : '#F9FAFB',
-                  borderWidth: 1,
-                  borderColor: isDarkMode ? '#4B5563' : '#E5E7EB',
+                  alignItems: 'center', padding: 14, borderRadius: 14, minWidth: 80,
+                  backgroundColor: isDarkMode ? '#263347' : '#F8FAFC',
+                  borderWidth: 1, borderColor: isDarkMode ? '#334155' : '#E2E8F0',
                 }}
                 onPress={() => { onSendSticker(sticker); onClose(); }}
               >
-                <Text style={{ fontSize: 32 }}>{sticker.emoji}</Text>
-                <Text style={{ fontSize: 11, marginTop: 4, color: isDarkMode ? '#FFFFFF' : '#000000' }}>{sticker.name}</Text>
+                <Text style={{ fontSize: 30 }}>{sticker.emoji}</Text>
+                <Text style={{ fontSize: 11, marginTop: 5, fontWeight: '500', color: isDarkMode ? '#94A3B8' : '#475569' }}>{sticker.name}</Text>
               </TouchableOpacity>
             ))}
           </View>

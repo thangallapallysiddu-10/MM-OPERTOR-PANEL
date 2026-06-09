@@ -73,8 +73,6 @@ export const useStream = () => {
     setBitrate(320);
     setAudioQuality('high');
     
-    // Log reconnection attempt
-    console.log(`Reconnection attempt #${reconnectAttempts + 1}`);
   };
   
   // Manual quality adjustment

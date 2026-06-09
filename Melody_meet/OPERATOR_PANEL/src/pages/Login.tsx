@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -15,6 +15,7 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth } from '../context/AuthContext';
+import { StorageService } from '../services/storageService';
 import { Feather } from '@expo/vector-icons';
 import { AuthApi } from '../services/api/authApi';
 
@@ -69,7 +70,7 @@ export default function LoginScreen({
   onLoginSuccess 
 }: { 
   onSwitchToSignup: () => void;
-  onLoginSuccess: () => void;
+  onLoginSuccess: () => void | Promise<void>;
 }) {
   const [mobileNumber, setMobileNumber] = useState('');
   const [countryCode, setCountryCode] = useState('+91');
@@ -90,6 +91,7 @@ export default function LoginScreen({
     isBiometricSupported,
     biometricType,
     verifyBiometric,
+    reloadSession,
   } = useAuth();
 
   useEffect(() => {
@@ -132,8 +134,13 @@ export default function LoginScreen({
         countryCode,
       });
       
+      // ─── Fix: reload session so AuthContext.user is populated and token
+      // is confirmed written before navigating. Without this, isAuthenticated
+      // stays false and any API call made during navigation returns 401. ───
+      await reloadSession();
+      
       setFormError('');
-      if (onLoginSuccess) onLoginSuccess();
+      if (onLoginSuccess) await onLoginSuccess();
       
     } catch (error: any) {
       const message = error.message || 'User not found';
@@ -177,11 +184,11 @@ export default function LoginScreen({
         return;
       }
 
-      if (response.user) {
-        await AuthApi.saveUser(response.user);
-        await AuthApi.updateLastActivity();
+      if (response.user && response.tokens?.accessToken) {
+        await AuthApi.persistLoginResponse(response);
+        await reloadSession();
         setFormError('');
-        if (onLoginSuccess) onLoginSuccess();
+        if (onLoginSuccess) await onLoginSuccess();
       }
       
     } catch (error: any) {
@@ -204,10 +211,16 @@ export default function LoginScreen({
     
     try {
       await AuthApi.verifyAuthenticator(pendingUid, otp);
+      await reloadSession();
+      const token = await StorageService.getSessionToken();
+      if (!token) {
+        setOtpError('Login succeeded but session token was not saved. Please try again.');
+        return;
+      }
       setShowOtpModal(false);
       setOtp('');
       setFormError('');
-      if (onLoginSuccess) onLoginSuccess();
+      if (onLoginSuccess) await onLoginSuccess();
     } catch (error: any) {
       setOtpError(error.message || 'Verification failed. Please try again.');
     } finally {
@@ -229,13 +242,13 @@ export default function LoginScreen({
 
   return (
     <>
-      <LinearGradient colors={['#1a1a2e', '#16213e']} style={styles.container}>
+      <LinearGradient colors={['#EEF2FF', '#F8FAFC']} style={styles.container}>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.flex}>
           <ScrollView contentContainerStyle={styles.scrollContent}>
             <View style={styles.card}>
               <View style={styles.logoContainer}>
                 <View style={styles.logoCircle}>
-                  <Feather name="mic" size={45} color="#1a1a2e" />
+                  <Feather name="mic" size={38} color="#4F6AF0" />
                 </View>
               </View>
 
@@ -254,6 +267,8 @@ export default function LoginScreen({
                 <View style={[styles.inputWrapper, styles.mobileInputWrapper]}>
                   <Feather name="smartphone" size={18} color="#888" style={styles.inputIconLeft} />
                   <TextInput
+                    nativeID="mobile-number"
+                    autoComplete="tel"
                     style={styles.input}
                     placeholder="Mobile Number"
                     placeholderTextColor="#aaa"
@@ -294,6 +309,8 @@ export default function LoginScreen({
                 <View style={styles.inputWrapper}>
                   <Feather name="lock" size={18} color="#888" style={styles.inputIconLeft} />
                   <TextInput
+                    nativeID="password"
+                    autoComplete="password"
                     style={[styles.input, styles.passwordInputField]}
                     placeholder="Password"
                     placeholderTextColor="#aaa"
@@ -404,6 +421,8 @@ export default function LoginScreen({
                   );
                 })}
                 <TextInput
+                  nativeID="otp-code"
+                  autoComplete="one-time-code"
                   ref={otpInputRef}
                   style={styles.codeInputHidden}
                   value={otp}
@@ -444,73 +463,79 @@ const styles = StyleSheet.create({
   card: {
     width: '90%',
     maxWidth: 400,
-    backgroundColor: '#fff',
-    borderRadius: 28,
-    padding: 32,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    padding: 28,
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.15,
-    shadowRadius: 25,
-    elevation: 10,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.08,
+    shadowRadius: 24,
+    elevation: 8,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
   },
-  logoContainer: { marginBottom: 24 },
-  logoCircle: { width: 80, height: 80, borderRadius: 40, backgroundColor: '#f0f0f0', justifyContent: 'center', alignItems: 'center' },
-  title: { fontSize: 28, fontWeight: 'bold', color: '#1a1a2e', marginBottom: 8 },
-  subtitle: { fontSize: 14, color: '#888', marginBottom: 32, textAlign: 'center' },
-  inputWrapper: { flexDirection: 'row', alignItems: 'center', width: '100%', height: 52, borderWidth: 1, borderColor: '#e0e0e0', borderRadius: 14, marginBottom: 16, backgroundColor: '#fafafa' },
-  inputIconLeft: { paddingLeft: 16 },
-  input: { flex: 1, paddingHorizontal: 12, fontSize: 15, color: '#333' },
-  passwordInputField: { paddingRight: 45 },
-  eyeIcon: { paddingHorizontal: 15 },
-  mobileContainer: { flexDirection: 'row', width: '100%', gap: 10, marginBottom: 16 },
-  countryCodeButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', width: 80, height: 52, borderWidth: 1, borderColor: '#e0e0e0', borderRadius: 14, backgroundColor: '#fafafa', gap: 4 },
-  countryCodeText: { fontSize: 15, color: '#333', fontWeight: '500' },
+  logoContainer: { marginBottom: 20 },
+  logoCircle: { width: 72, height: 72, borderRadius: 20, backgroundColor: '#EEF2FF', justifyContent: 'center', alignItems: 'center' },
+  title: { fontSize: 24, fontWeight: '700', color: '#0F172A', marginBottom: 6, letterSpacing: -0.5 },
+  subtitle: { fontSize: 13, color: '#94A3B8', marginBottom: 24, textAlign: 'center' },
+  inputWrapper: { flexDirection: 'row', alignItems: 'center', width: '100%', height: 48, borderWidth: 1, borderColor: '#E2E8F0', borderRadius: 12, marginBottom: 12, backgroundColor: '#F8FAFC' },
+  inputIconLeft: { paddingLeft: 14 },
+  input: { flex: 1, paddingHorizontal: 10, fontSize: 14, color: '#0F172A' },
+  passwordInputField: { paddingRight: 42 },
+  eyeIcon: { paddingHorizontal: 14 },
+  mobileContainer: { flexDirection: 'row', width: '100%', gap: 8, marginBottom: 12 },
+  countryCodeButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', width: 76, height: 48, borderWidth: 1, borderColor: '#E2E8F0', borderRadius: 12, backgroundColor: '#F8FAFC', gap: 4 },
+  countryCodeText: { fontSize: 14, color: '#0F172A', fontWeight: '500' },
   mobileInputWrapper: { flex: 1, marginBottom: 0 },
-  countryPicker: { position: 'absolute', top: 180, left: 20, right: 20, backgroundColor: '#fff', borderRadius: 14, borderWidth: 1, borderColor: '#e0e0e0', zIndex: 1000, elevation: 5, maxHeight: 250 },
-  countryItem: { flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#f0f0f0' },
-  countryItemText: { fontSize: 14, fontWeight: '500', color: '#333' },
-  countryItemName: { fontSize: 12, color: '#888' },
+  countryPicker: { position: 'absolute', top: 175, left: 20, right: 20, backgroundColor: '#FFFFFF', borderRadius: 12, borderWidth: 1, borderColor: '#E2E8F0', zIndex: 1000, elevation: 5, maxHeight: 240 },
+  countryItem: { flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 14, paddingVertical: 11, borderBottomWidth: 1, borderBottomColor: '#F1F5F9' },
+  countryItemText: { fontSize: 13, fontWeight: '600', color: '#0F172A' },
+  countryItemName: { fontSize: 12, color: '#94A3B8' },
   formErrorBox: {
     flexDirection: 'row',
     alignItems: 'center',
     width: '100%',
-    backgroundColor: '#ffebee',
+    backgroundColor: '#FEF2F2',
     borderWidth: 1,
-    borderColor: '#ffcdd2',
-    borderRadius: 12,
+    borderColor: '#FECACA',
+    borderRadius: 10,
     paddingHorizontal: 12,
     paddingVertical: 10,
-    marginBottom: 14,
+    marginBottom: 12,
     gap: 8,
   },
-  formErrorText: { color: '#d32f2f', fontSize: 13, flex: 1, lineHeight: 18 },
-  loginButton: { width: '100%', height: 52, backgroundColor: '#1a1a2e', borderRadius: 14, justifyContent: 'center', alignItems: 'center', marginBottom: 16 },
-  loginButtonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
-  biometricNote: { flexDirection: 'row', backgroundColor: '#e8f5e9', padding: 12, borderRadius: 12, marginVertical: 12, alignItems: 'center', gap: 8, width: '100%' },
-  biometricNoteText: { color: '#2e7d32', fontSize: 12, flex: 1 },
-  gaNote: { flexDirection: 'row', backgroundColor: '#e3f2fd', padding: 12, borderRadius: 12, marginVertical: 12, alignItems: 'center', gap: 8, width: '100%' },
-  gaNoteText: { color: '#1565c0', fontSize: 12, flex: 1 },
-  signupContainer: { flexDirection: 'row', marginTop: 16 },
-  signupText: { color: '#888', fontSize: 14 },
-  signupLink: { color: '#1a1a2e', fontSize: 14, fontWeight: '600' },
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center' },
-  modalCard: { width: '85%', maxWidth: 380, backgroundColor: '#fff', borderRadius: 24, padding: 24, alignItems: 'center' },
-  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', width: '100%', marginBottom: 20 },
-  modalTitle: { fontSize: 20, fontWeight: 'bold', color: '#1a1a2e' },
-  modalSubtitle: { fontSize: 13, color: '#888', marginBottom: 20, textAlign: 'center' },
+  formErrorText: { color: '#DC2626', fontSize: 12, flex: 1, lineHeight: 18 },
+  loginButton: { width: '100%', height: 48, backgroundColor: '#4F6AF0', borderRadius: 12, justifyContent: 'center', alignItems: 'center', marginBottom: 14,
+    shadowColor: '#4F6AF0', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.25, shadowRadius: 10, elevation: 4,
+  },
+  loginButtonText: { color: '#FFF', fontSize: 15, fontWeight: '700' },
+  biometricNote: { flexDirection: 'row', backgroundColor: '#ECFDF5', padding: 10, borderRadius: 10, marginVertical: 10, alignItems: 'center', gap: 8, width: '100%', borderWidth: 1, borderColor: '#A7F3D0' },
+  biometricNoteText: { color: '#059669', fontSize: 12, flex: 1 },
+  gaNote: { flexDirection: 'row', backgroundColor: '#EEF2FF', padding: 10, borderRadius: 10, marginVertical: 10, alignItems: 'center', gap: 8, width: '100%', borderWidth: 1, borderColor: '#C7D2FE' },
+  gaNoteText: { color: '#4F6AF0', fontSize: 12, flex: 1 },
+  signupContainer: { flexDirection: 'row', marginTop: 14 },
+  signupText: { color: '#94A3B8', fontSize: 13 },
+  signupLink: { color: '#4F6AF0', fontSize: 13, fontWeight: '600' },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
+  modalCard: { width: '85%', maxWidth: 380, backgroundColor: '#FFFFFF', borderRadius: 20, padding: 24, alignItems: 'center', borderWidth: 1, borderColor: '#E2E8F0' },
+  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', width: '100%', marginBottom: 16 },
+  modalTitle: { fontSize: 18, fontWeight: '700', color: '#0F172A' },
+  modalSubtitle: { fontSize: 13, color: '#94A3B8', marginBottom: 20, textAlign: 'center' },
   otpInputCenter: { alignItems: 'center', width: '100%', marginBottom: 20 },
   codeInputShell: { width: '100%', flexDirection: 'row', justifyContent: 'center', gap: 8, position: 'relative' },
-  codeDigitBox: { width: 38, height: 48, borderWidth: 1, borderColor: '#d8dbe2', borderRadius: 12, backgroundColor: '#fafafa', alignItems: 'center', justifyContent: 'center' },
-  codeDigitBoxActive: { borderColor: '#1a1a2e', backgroundColor: '#ffffff' },
-  codeDigitText: { color: '#1a1a2e', fontSize: 22, fontWeight: '800', lineHeight: 28 },
+  codeDigitBox: { width: 38, height: 48, borderWidth: 1, borderColor: '#E2E8F0', borderRadius: 10, backgroundColor: '#F8FAFC', alignItems: 'center', justifyContent: 'center' },
+  codeDigitBoxActive: { borderColor: '#4F6AF0', backgroundColor: '#FFFFFF', borderWidth: 2 },
+  codeDigitText: { color: '#0F172A', fontSize: 22, fontWeight: '700', lineHeight: 28 },
   codeInputHidden: { position: 'absolute', width: 1, height: 1, opacity: 0 },
-  errorContainer: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#ffe0e0', padding: 12, borderRadius: 10, marginBottom: 20, gap: 8 },
-  errorText: { color: '#ff4444', fontSize: 13, flex: 1, textAlign: 'center' },
-  verifyButton: { width: '100%', height: 50, backgroundColor: '#1a1a2e', borderRadius: 12, justifyContent: 'center', alignItems: 'center', marginBottom: 12 },
-  verifyButtonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
-  resendText: { color: '#1a1a2e', fontSize: 14, textAlign: 'center' },
-  fingerprintMark: { width: 84, height: 84, borderRadius: 14, overflow: 'hidden', backgroundColor: '#eef8ee' },
+  errorContainer: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FEF2F2', padding: 10, borderRadius: 10, marginBottom: 16, gap: 8, borderWidth: 1, borderColor: '#FECACA' },
+  errorText: { color: '#DC2626', fontSize: 12, flex: 1, textAlign: 'center' },
+  verifyButton: { width: '100%', height: 48, backgroundColor: '#4F6AF0', borderRadius: 12, justifyContent: 'center', alignItems: 'center', marginBottom: 12,
+    shadowColor: '#4F6AF0', shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.25, shadowRadius: 8, elevation: 4,
+  },
+  verifyButtonText: { color: '#FFF', fontSize: 15, fontWeight: '700' },
+  resendText: { color: '#475569', fontSize: 13, textAlign: 'center' },
+  fingerprintMark: { width: 84, height: 84, borderRadius: 14, overflow: 'hidden', backgroundColor: '#ECFDF5' },
   fingerprintImage: { width: 84, height: 84 },
   fingerprintMarkCompact: { width: 22, height: 22, borderRadius: 5, overflow: 'hidden', alignItems: 'center', justifyContent: 'center' },
   fingerprintImageCompact: { width: 24, height: 22 },

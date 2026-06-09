@@ -39,13 +39,6 @@ export interface Mic {
   guestId?: string;
 }
 
-export interface GuestRequest {
-  id: string;
-  name: string;
-  device: string;
-  status: 'pending' | 'approved' | 'denied';
-}
-
 export interface MusicTrack {
   id: string;
   title: string;

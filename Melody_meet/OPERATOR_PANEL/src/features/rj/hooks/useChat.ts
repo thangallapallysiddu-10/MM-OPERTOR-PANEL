@@ -4,6 +4,9 @@ import { FlatList } from 'react-native';
 import { Message } from '../types';
 import { emojiCategories } from '../constants';
 import { useAppStore } from '../../../store/useAppStore';
+import { rjBackend } from '../services/rjBackend';
+import { RjApi } from '../../../services/api/rjApi';
+import { chatSocket } from '../../../services/socketService';
 
 export const useChat = (addNotification: (type: "request" | "system" | "alert", message: string) => void) => {
   const { rjStudio, updateRjStudioState, addRjNotification } = useAppStore();
@@ -18,21 +21,27 @@ export const useChat = (addNotification: (type: "request" | "system" | "alert", 
   const [typingUsers, setTypingUsers] = useState<{ [key: string]: boolean }>({});
 
   // Get values from store (these persist across navigation)
-  const messages = rjStudio.chatMessages;
+  const messages = Array.isArray(rjStudio.chatMessages) ? rjStudio.chatMessages : [];
   const setMessages = (fn: any) => {
+    const currentMessages = Array.isArray(useAppStore.getState().rjStudio.chatMessages)
+      ? useAppStore.getState().rjStudio.chatMessages
+      : [];
     if (typeof fn === 'function') {
-      updateRjStudioState({ chatMessages: fn(messages) });
+      updateRjStudioState({ chatMessages: fn(currentMessages) });
     } else {
-      updateRjStudioState({ chatMessages: fn });
+      updateRjStudioState({ chatMessages: Array.isArray(fn) ? fn : [] });
     }
   };
   
-  const bannedUsers = rjStudio.bannedUsers;
+  const bannedUsers = Array.isArray(rjStudio.bannedUsers) ? rjStudio.bannedUsers : [];
   const setBannedUsers = (fn: any) => {
+    const currentBannedUsers = Array.isArray(useAppStore.getState().rjStudio.bannedUsers)
+      ? useAppStore.getState().rjStudio.bannedUsers
+      : [];
     if (typeof fn === 'function') {
-      updateRjStudioState({ bannedUsers: fn(bannedUsers) });
+      updateRjStudioState({ bannedUsers: fn(currentBannedUsers) });
     } else {
-      updateRjStudioState({ bannedUsers: fn });
+      updateRjStudioState({ bannedUsers: Array.isArray(fn) ? fn : [] });
     }
   };
   
@@ -64,6 +73,16 @@ const handleSendMessage = (): void => {
   if (replyTo) {
     messageText = `@${replyTo.user} ${newMessage}`;
   }
+
+  const sid = rjBackend.getStudioId();
+  if (rjBackend.isEnabled() && sid) {
+    chatSocket.sendMessage(sid, messageText, 'RJ');
+    setNewMessage("");
+    setReplyTo(null);
+    setShowEmojiPicker(false);
+    setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
+    return;
+  }
   
   const newMsg: Message = { 
     id: Date.now(), 
@@ -82,9 +101,7 @@ const handleSendMessage = (): void => {
   setNewMessage("");
   setReplyTo(null);
   setShowEmojiPicker(false);
-    setTimeout(() => {
-    flatListRef.current?.scrollToEnd({ animated: true });
-  }, 100);
+  setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
 };
 
   const handleReply = (user: string): void => {
@@ -100,17 +117,40 @@ const handleSendMessage = (): void => {
     setShowEmojiPicker(false);
   };
 
+  const restrictUser = (username: string, minutes: 5 | 10 = 5): void => {
+    if (!username || username === "RJ" || username === "SYSTEM") return;
+    const sid = rjBackend.getStudioId();
+    if (rjBackend.isEnabled() && sid) {
+      void RjApi.banUser(
+        sid,
+        username,
+        `Restricted by RJ for ${minutes} minutes`,
+        'cooldown',
+        minutes
+      ).catch(() => {});
+    }
+    if (!bannedUsers.includes(username)) {
+      setBannedUsers([...bannedUsers, username]);
+    }
+    const infoMsg: Message = {
+      id: Date.now(),
+      user: "SYSTEM",
+      text: `⏳ ${username} is restricted for ${minutes} minutes`,
+      time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+      system: true
+    };
+    setMessages((prev: Message[]) => [...prev, infoMsg]);
+    addNotification("system", `${username} is on ${minutes}m cooldown`);
+  };
+
   const banUser = (username: string): void => {
     if (!bannedUsers.includes(username) && username !== "RJ" && username !== "SYSTEM") {
+      const sid = rjBackend.getStudioId();
+      if (rjBackend.isEnabled() && sid) {
+        void RjApi.banUser(sid, username, 'Blocked by RJ', 'ban')
+          .catch(() => {});
+      }
       setBannedUsers([...bannedUsers, username]);
-      const banMsg: Message = { 
-        id: Date.now(), 
-        user: "SYSTEM", 
-        text: `User ${username} banned`, 
-        time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }), 
-        system: true 
-      };
-      setMessages((prev: Message[]) => [...prev, banMsg]);
       addNotification("system", `User ${username} was banned`);
       addRjNotification({
         title: "User Banned",
@@ -122,39 +162,34 @@ const handleSendMessage = (): void => {
   };
 
   const unbanUser = (username: string): void => {
+    const sid = rjBackend.getStudioId();
+    if (rjBackend.isEnabled() && sid) {
+      void RjApi.unbanUser(sid, username).catch(() => {});
+    }
     setBannedUsers(bannedUsers.filter(u => u !== username));
-    const unbanMsg: Message = { 
-      id: Date.now(), 
-      user: "SYSTEM", 
-      text: `User ${username} unbanned`, 
-      time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }), 
-      system: true 
-    };
-    setMessages((prev: Message[]) => [...prev, unbanMsg]);
   };
 
   const clearChat = (): void => {
-    setMessages((prev: Message[]) => prev.filter((msg: Message) => msg.user === "RJ" || msg.system === true));
-    const clearMsg: Message = { 
-      id: Date.now(), 
-      user: "SYSTEM", 
-      text: "Chat cleared", 
-      time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }), 
-      system: true 
-    };
-    setMessages((prev: Message[]) => [clearMsg, ...prev.filter((msg: Message) => msg.user === "RJ" || msg.system === true)]);
+    const sid = rjBackend.getStudioId();
+    if (rjBackend.isEnabled() && sid) {
+      void RjApi.clearChat(sid).catch(() => {});
+    }
+    // We intentionally do NOT clear the local state here immediately, 
+    // because the backend clearChat will emit a system message and we want
+    // that message to be the only thing visible. If we clear locally now,
+    // the system message arrives a split second later and replaces the chat.
+    // Actually, the user asked to preserve "Chat cleared by operator" briefly.
+    // The backend `clearChat` broadcasts "Chat cleared by operator" after wiping DB.
   };
 
   const pinMessage = (message: Message) => {
+    const sid = rjBackend.getStudioId();
+    const pinText = message.text;
+    if (rjBackend.isEnabled() && sid) {
+      chatSocket.pinMessage(sid, String(message.id), pinText);
+      void RjApi.pinMessage(sid, String(message.id), pinText).catch(() => {});
+    }
     setPinnedMessage(message);
-    const pinMsg: Message = { 
-      id: Date.now(), 
-      user: "SYSTEM", 
-      text: `📌 Message from ${message.user} pinned by RJ`, 
-      time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }), 
-      system: true 
-    };
-    setMessages((prev: Message[]) => [...prev, pinMsg]);
     addNotification("system", `📌 Pinned message from ${message.user}`);
     addRjNotification({
       title: "Message Pinned",
@@ -187,6 +222,20 @@ const filteredMessages = messages.filter((msg: Message) => {
     }, 3000);
   };
 
+  const injectDemoMessages = () => {
+    const hasDemo = messages.some((m) => m.user?.startsWith('Demo'));
+    if (hasDemo) return;
+    const now = new Date();
+    const at = (offsetMin: number) =>
+      new Date(now.getTime() - offsetMin * 60000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    const demo: Message[] = [
+      { id: Date.now() + 1, user: "DemoUser_Aryan", text: "Yo RJ, drop bass boost!", time: at(3), system: false, likeCount: 0, avatar: "A" },
+      { id: Date.now() + 2, user: "DemoUser_Neha", text: "Can we hear Player B next?", time: at(2), system: false, likeCount: 0, avatar: "N" },
+      { id: Date.now() + 3, user: "DemoUser_Rahul", text: "This mix is fire 🔥", time: at(1), system: false, likeCount: 0, avatar: "R" },
+    ];
+    setMessages((prev: Message[]) => [...prev, ...demo]);
+  };
+
   return {
     flatListRef: flatListRef as React.RefObject<FlatList<any>>,
     isAtBottom,
@@ -215,11 +264,13 @@ const filteredMessages = messages.filter((msg: Message) => {
     handleSendMessage,
     handleReply,
     addEmoji,
+    restrictUser,
     banUser,
     unbanUser,
     clearChat,
     pinMessage,
     handleScroll,
     simulateTyping,    
+    injectDemoMessages,
   };
 };

@@ -11,6 +11,7 @@ interface AuthContextType {
   isAuthenticated: boolean;
   isBiometricSupported: boolean;
   biometricType: string;
+  reloadSession: () => Promise<boolean>;
   login: (credentials: LoginCredentials) => Promise<boolean>;
   sendLoginOTP: (credentials: LoginCredentials) => Promise<{ success: boolean; message: string }>;
   loginWithOTP: (request: TwoFactorLoginRequest) => Promise<boolean>;
@@ -66,21 +67,52 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const checkStoredSession = async () => {
+  const reloadSession = async (): Promise<boolean> => {
     try {
       const storedUser = await StorageService.getUser();
       const lastActivity = await StorageService.getLastActivity();
-      
-      if (storedUser && lastActivity) {
-        const SESSION_TIMEOUT = 30 * 60 * 1000;
-        const isSessionValid = Date.now() - lastActivity < SESSION_TIMEOUT;
-        
-        if (isSessionValid) {
-          setUser(storedUser);
-        } else {
-          await AuthApi.logout();
+
+      if (!storedUser || !lastActivity) {
+        setUser(null);
+        return false;
+      }
+
+      const SESSION_TIMEOUT = 30 * 60 * 1000;
+      if (Date.now() - lastActivity >= SESSION_TIMEOUT) {
+        await AuthApi.logout();
+        setUser(null);
+        return false;
+      }
+
+      let token = await StorageService.getSessionToken();
+
+      if (!token) {
+        try {
+          await AuthApi.refreshTokens();
+          token = await StorageService.getSessionToken();
+        } catch {
+          token = null;
         }
       }
+
+      if (!token) {
+        await AuthApi.logout();
+        setUser(null);
+        return false;
+      }
+
+      setUser(storedUser);
+      return true;
+    } catch (error) {
+      console.error('[AuthContext] reloadSession failed:', error);
+      setUser(null);
+      return false;
+    }
+  };
+
+  const checkStoredSession = async () => {
+    try {
+      await reloadSession();
     } catch (error) {
       console.error('Session check failed:', error);
     } finally {
@@ -246,6 +278,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         isAuthenticated: !!user,
         isBiometricSupported,
         biometricType,
+        reloadSession,
         login,
         sendLoginOTP,
         loginWithOTP,

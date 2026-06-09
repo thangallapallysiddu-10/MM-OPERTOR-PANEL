@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
-  View, ScrollView, Dimensions, Platform, TouchableOpacity, Text, 
+  View, ScrollView, Platform, TouchableOpacity, Text, 
   StyleSheet, KeyboardAvoidingView, useWindowDimensions 
 } from 'react-native';
 import { Ionicons, Feather, MaterialIcons } from '@expo/vector-icons';
@@ -13,29 +13,29 @@ import { NotificationsModal } from './components/modals/NotificationsModal';
 
 import { Track, Message } from './types';
 import { lightTheme, darkTheme } from './themes';
-import { trackLibrary, rjProfile, availableSongs, songData } from './constants';
+import { rjProfile, songData } from './constants';
 
 import { useTimer } from './hooks/useTimer';
 import { useStats } from './hooks/useStats';
 import { useNotifications } from './hooks/useNotifications';
 import { usePlayer } from './hooks/usePlayer';
-import { useMixer } from './hooks/useMixer';
+import { useRjSessionPersistence } from './hooks/useRjSessionPersistence';
 import { useMicSystem } from './hooks/useMicSystem';
 import { usePlaylist } from './hooks/usePlaylist';
+import { usePlaylistPlayer } from './hooks/usePlaylistPlayer';
 import { useChat } from './hooks/useChat';
-import { useRequests } from './hooks/useRequests';
-
+import { useRjSync } from './hooks/useRjSync';
+import { RjApi } from '../../services/api/rjApi';
+import { debouncedRjSync, syncDualPlayer } from './services/rjApiSync';
+import { rjBackend } from './services/rjBackend';
+import { chatSocket } from '../../services/socketService';
+import { audioEngineManager } from '../../services/audioEngine/core/AudioEngineManager';
 import { NowPlaying } from './components/NowPlaying';
-import { LocalFilesUploader } from './components/LocalFilesUploader';
-import { DualMicSetup } from './components/DualMicSetup';
 import { LiveChat } from './components/LiveChat';
-import { SongRequests } from './components/SongRequests';
-import { DualPlayer } from './components/DualPlayer';
-import { Mixer } from './components/Mixer';
 import { PinnedMessage } from './components/PinnedMessage';
+import { RjSetupModal } from './components/modals/RjSetupModal';
 
 import { PlaylistModal } from './components/modals/PlaylistModal';
-import { AddMicModal } from './components/modals/AddMicModal';
 import { GiftModal } from './components/modals/GiftModal';
 import { StickerModal } from './components/modals/StickerModal';
 
@@ -44,7 +44,14 @@ const isAndroid = Platform.OS === 'android';
 const isNative = isIOS || isAndroid;
 
 const RJStudio = ({ navigation }: any) => {
-  const { isLive, toggleLive, setCurrentTrack, activeChannel, setActiveChannel } = useOperator();
+  const { isLive, toggleLive, setCurrentTrack, activeChannel, setActiveChannel, activeStreamId, streams, listeners } = useOperator();
+  const studioId = activeStreamId ?? streams[0]?.id ?? null;
+  const { backendOnline, ready: rjSyncReady } = useRjSync(studioId, isLive);
+
+  useEffect(() => {
+    if (!backendOnline || !studioId) return;
+    void RjApi.syncListeners(studioId, listeners).catch(() => {});
+  }, [listeners, backendOnline, studioId]);
   const { width: screenWidth } = useWindowDimensions();
   const isMobile = screenWidth < 768;
  
@@ -53,22 +60,17 @@ const RJStudio = ({ navigation }: any) => {
   const [isDarkMode, setIsDarkMode] = useState(profileDarkMode);
   const colors = isDarkMode ? darkTheme : lightTheme;
 
-  const [localCurrentTrack, setLocalCurrentTrack] = useState<Track | null>(() => {
-  
-    const savedTrack = rjStudio.localPlayback?.currentTrack;
-    return savedTrack || null; 
-  });
+  const [localCurrentTrack, setLocalCurrentTrack] = useState<Track | null>(null);
   
   const [currentMood, setCurrentMood] = useState<string>("chill");
   const [showAnnouncement, setShowAnnouncement] = useState(false);
   const [announcementMessage, setAnnouncementMessage] = useState("");
-  const [autoAcceptRequests, setAutoAcceptRequests] = useState(false);
- 
   const keyboardOpenRef = useRef(false);
 
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [showNotificationsModal, setShowNotificationsModal] = useState(false);
+  const [showRjSetupModal, setShowRjSetupModal] = useState(false);
 
   useEffect(() => {
     setProfileDarkMode(isDarkMode);
@@ -107,6 +109,8 @@ const RJStudio = ({ navigation }: any) => {
     }
   }, [localCurrentTrack]);
 
+  // Active channel removed from mixer sync
+
   const timer = useTimer(isLive);
   const stats = useStats(localCurrentTrack?.title || "No Song");
   const notifications = useNotifications();
@@ -123,35 +127,43 @@ const RJStudio = ({ navigation }: any) => {
     },
     addNotification: notifications.addNotification 
   });
-  const mixer = useMixer();
   const micSystem = useMicSystem(notifications.addNotification);
+  const playlistPlayer = usePlaylistPlayer();
   const playlist = usePlaylist({ 
+    player: playlistPlayer,
     setCurrentTrack, 
     setLocalCurrentTrack, 
     addNotification: notifications.addNotification 
   });
+
+  // ── Listen Music state — lives here, passed down to modal ────────────────
+  // isListening=true  → operator hears audio (player unmuted)
+  // isListening=false → operator hears nothing (player muted, default)
+  const [isListening, setIsListening] = useState(false);
+
+  const handleListenToggle = () => {
+    const next = !isListening;
+    setIsListening(next);
+    // muted=true  → silent (Listen OFF)
+    // muted=false → audible (Listen ON)
+    playlistPlayer.setMuted(!next);
+  };
+  
+  useRjSessionPersistence();
   const chat = useChat(notifications.addNotification);
 
-  const loadIntoStandbyPlayer = (track: Track) => {
-    player.loadIntoStandby(track);
-  };
-  
-  const requests = useRequests({ 
-    activeChannel, 
-    setLocalCurrentTrack, 
-    setCurrentTrack, 
-    addNotification: notifications.addNotification,
-    loadIntoStandbyPlayer: player.loadIntoStandby  
-  });
+  useEffect(() => {
+    chat.injectDemoMessages();
+  }, []);
 
-  const getChannelColor = (ch: number) => {
-    return mixer.getChannelColor(ch, colors);
+  const handleLoadLocalToStandby = (track: Track, playerId: 'A' | 'B' = 'A') => {
+    player.loadIntoStandby(track, playerId);
   };
-  
+
   const styles = StyleSheet.create({
     container: {
       flex: 1,
-      backgroundColor: isDarkMode ? '#111827' : '#F3F4F6',
+      backgroundColor: isDarkMode ? '#0F172A' : '#F8FAFC',
     },
     scrollContent: {
       paddingHorizontal: 14,
@@ -164,12 +176,17 @@ const RJStudio = ({ navigation }: any) => {
       alignItems: 'center' as const,
       marginBottom: 14,
       padding: 14,
-      borderRadius: 12,
+      borderRadius: 14,
       flexWrap: 'wrap' as const,
       gap: 10,
-      backgroundColor: isDarkMode ? '#1F2937' : '#FFFFFF',
+      backgroundColor: isDarkMode ? '#1E293B' : '#FFFFFF',
       borderWidth: 1,
-      borderColor: isDarkMode ? '#374151' : '#E5E7EB',
+      borderColor: isDarkMode ? '#334155' : '#E2E8F0',
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 1 },
+      shadowOpacity: isDarkMode ? 0.15 : 0.04,
+      shadowRadius: 4,
+      elevation: 2,
     },
     headerLeft: {
       flexDirection: 'row' as const,
@@ -177,27 +194,28 @@ const RJStudio = ({ navigation }: any) => {
       gap: 12,
     },
     avatar: {
-      width: 48,
-      height: 48,
-      borderRadius: 24,
+      width: 44,
+      height: 44,
+      borderRadius: 12,
       justifyContent: 'center' as const,
       alignItems: 'center' as const,
-      backgroundColor: isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
+      backgroundColor: isDarkMode ? '#1E3A8A' : '#EEF2FF',
     },
     avatarText: {
-      fontSize: 18,
+      fontSize: 16,
       fontWeight: 'bold' as const,
-      color: isDarkMode ? '#FFFFFF' : '#000000',
+      color: isDarkMode ? '#6B8EFF' : '#4F6AF0',
     },
     nameText: {
-      fontSize: 18,
-      fontWeight: 'bold' as const,
-      color: isDarkMode ? '#FFFFFF' : '#000000',
+      fontSize: 16,
+      fontWeight: '700' as const,
+      color: isDarkMode ? '#F1F5F9' : '#0F172A',
+      letterSpacing: -0.3,
     },
     statusText: {
       fontSize: 11,
       marginTop: 2,
-      color: isDarkMode ? '#9CA3AF' : '#6B7280',
+      color: isDarkMode ? '#64748B' : '#94A3B8',
     },
     statPill: {
       flexDirection: 'row' as const,
@@ -205,81 +223,111 @@ const RJStudio = ({ navigation }: any) => {
       gap: 4,
       paddingHorizontal: 10,
       paddingVertical: 6,
-      borderRadius: 20,
-      backgroundColor: isDarkMode ? '#374151' : '#F9FAFB',
+      borderRadius: 8,
+      backgroundColor: isDarkMode ? '#263347' : '#F1F5F9',
       borderWidth: 1,
-      borderColor: isDarkMode ? '#4B5563' : '#E5E7EB',
+      borderColor: isDarkMode ? '#334155' : '#E2E8F0',
     },
     statValue: {
       fontSize: 12,
-      fontWeight: 'bold' as const,
-      color: isDarkMode ? '#FFFFFF' : '#000000',
+      fontWeight: '600' as const,
+      color: isDarkMode ? '#F1F5F9' : '#0F172A',
     },
     menuButton: {
       flexDirection: 'row' as const,
       alignItems: 'center' as const,
       gap: 6,
       paddingHorizontal: 10,
-      paddingVertical: 6,
+      paddingVertical: 7,
       borderRadius: 8,
-      backgroundColor: isDarkMode ? '#374151' : '#F9FAFB',
+      backgroundColor: isDarkMode ? '#263347' : '#F8FAFC',
       borderWidth: 1,
-      borderColor: isDarkMode ? '#4B5563' : '#E5E7EB',
+      borderColor: isDarkMode ? '#334155' : '#E2E8F0',
     },
     menuButtonText: {
       fontSize: 12,
       fontWeight: '500' as const,
-      color: isDarkMode ? '#FFFFFF' : '#000000',
+      color: isDarkMode ? '#94A3B8' : '#475569',
     },
     row: {
       flexDirection: isMobile ? 'column' as const : 'row' as const,
       gap: 14,
     },
-    leftColumn: {
-      width: isMobile ? '100%' : 380,
-      gap: 14,
-    },
-    rightColumn: {
+    mainContent: {
       flex: 1,
       gap: 14,
+      minWidth: isMobile ? '100%' : 320,
     },
     topRow: {
       flexDirection: 'row' as const,
       flexWrap: 'wrap' as const,
       gap: 12,
-      marginBottom: 40,
+      marginBottom: 14,
+      alignItems: 'stretch' as const,
+    },
+    rjSetupButton: {
+      flexDirection: 'row' as const,
+      alignItems: 'center' as const,
+      justifyContent: 'center' as const,
+      gap: 8,
+      paddingHorizontal: 16,
+      paddingVertical: 12,
+      borderRadius: 10,
+      minWidth: 140,
+      backgroundColor: '#4F6AF0',
+      shadowColor: '#4F6AF0',
+      shadowOffset: { width: 0, height: 3 },
+      shadowOpacity: 0.25,
+      shadowRadius: 8,
+      elevation: 4,
+    },
+    rjSetupButtonText: {
+      fontSize: 13,
+      fontWeight: '700' as const,
+      color: '#FFFFFF',
+    },
+    rjSetupHint: {
+      fontSize: 11,
+      color: isDarkMode ? '#64748B' : '#94A3B8',
+      marginTop: 4,
+      lineHeight: 16,
     },
     announcementBanner: {
       marginBottom: 12,
-      padding: 8,
+      padding: 10,
       borderRadius: 10,
       alignItems: 'center' as const,
-      backgroundColor: isDarkMode ? '#374151' : '#6B7280',
+      backgroundColor: isDarkMode ? '#1E3A8A' : '#EEF2FF',
+      borderWidth: 1,
+      borderColor: isDarkMode ? '#2D4A9A' : '#C7D2FE',
     },
     announcementText: {
-      fontSize: 11,
+      fontSize: 12,
       fontWeight: '600' as const,
-      color: '#FFFFFF',
+      color: isDarkMode ? '#6B8EFF' : '#4F6AF0',
     },
     liveBadge: {
       flexDirection: 'row' as const,
       alignItems: 'center' as const,
-      gap: 6,
-      paddingHorizontal: 8,
-      paddingVertical: 4,
+      gap: 5,
+      paddingHorizontal: 10,
+      paddingVertical: 5,
       borderRadius: 8,
-      backgroundColor: isDarkMode ? '#FFFFFF' : '#000000',
+      backgroundColor: '#FEF2F2',
+      borderWidth: 1,
+      borderColor: '#FECACA',
     },
     liveDot: {
       width: 6,
       height: 6,
       borderRadius: 3,
-      backgroundColor: isDarkMode ? '#000000' : '#FFFFFF',
+      backgroundColor: '#DC2626',
     },
     liveText: {
       fontSize: 10,
-      fontWeight: 'bold' as const,
-      color: isDarkMode ? '#000000' : '#FFFFFF',
+      fontWeight: '700' as const,
+      color: '#DC2626',
+      letterSpacing: 0.5,
     },
     notificationIconContainer: {
       position: 'relative' as const,
@@ -294,23 +342,23 @@ const RJStudio = ({ navigation }: any) => {
       justifyContent: 'center' as const,
       alignItems: 'center' as const,
       paddingHorizontal: 4,
-      backgroundColor: isDarkMode ? '#FFFFFF' : '#000000',
+      backgroundColor: '#4F6AF0',
     },
     notificationBadgeText: {
       fontSize: 9,
       fontWeight: 'bold' as const,
-      color: isDarkMode ? '#000000' : '#FFFFFF',
+      color: '#FFFFFF',
     },
     masterControls: {
       flexDirection: 'row' as const,
       alignItems: 'center' as const,
       gap: 10,
       flexWrap: 'wrap' as const,
-      borderRadius: 12,
+      borderRadius: 14,
       padding: 14,
-      backgroundColor: isDarkMode ? '#1F2937' : '#FFFFFF',
+      backgroundColor: isDarkMode ? '#1E293B' : '#FFFFFF',
       borderWidth: 1,
-      borderColor: isDarkMode ? '#374151' : '#E5E7EB',
+      borderColor: isDarkMode ? '#334155' : '#E2E8F0',
     },
     controlButton: {
       paddingHorizontal: 12,
@@ -320,11 +368,11 @@ const RJStudio = ({ navigation }: any) => {
       alignItems: 'center' as const,
     },
     timerText: {
-      fontSize: 14,
+      fontSize: 13,
       fontFamily: 'monospace',
       marginLeft: 'auto' as const,
-      fontWeight: '500' as const,
-      color: isDarkMode ? '#FFFFFF' : '#000000',
+      fontWeight: '600' as const,
+      color: isDarkMode ? '#94A3B8' : '#475569',
     },
   });
 
@@ -355,7 +403,10 @@ const RJStudio = ({ navigation }: any) => {
               </View>
               <View>
                 <Text style={styles.nameText}>{rjProfile.name}</Text>
-                <Text style={styles.statusText}>LIVE STUDIO • {localCurrentTrack?.bpm || 0} BPM</Text>
+                <Text style={styles.statusText}>
+                  LIVE STUDIO • {localCurrentTrack?.bpm || 0} BPM
+                  {backendOnline ? ' • ☁️ synced' : rjSyncReady ? ' • local' : ''}
+                </Text>
               </View>
             </TouchableOpacity>
 
@@ -382,7 +433,11 @@ const RJStudio = ({ navigation }: any) => {
               </View>
             </View>
 
-            <View style={{ flexDirection: 'row', gap: 10, flexWrap: 'wrap' }}>
+            <View style={{ flexDirection: 'row', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+              <TouchableOpacity onPress={() => setShowRjSetupModal(true)} style={styles.rjSetupButton}>
+                <MaterialIcons name="tune" size={20} color="#FFFFFF" />
+                <Text style={styles.rjSetupButtonText}>RJ Setup</Text>
+              </TouchableOpacity>
               <TouchableOpacity onPress={() => setShowProfileModal(true)} style={styles.menuButton}>
                 <Feather name="user" size={16} color={isDarkMode ? "#FFFFFF" : "#000000"} />
                 <Text style={styles.menuButtonText}>Profile</Text>
@@ -441,21 +496,29 @@ const RJStudio = ({ navigation }: any) => {
               onOpenPlaylist={() => playlist.setShowPlaylistModal(true)}
             />
          
-            <LocalFilesUploader 
-              isDarkMode={isDarkMode}
-              colors={colors}
-              onPlayTrack={handleLocalFilePlayTrack}
-            />
-          
-            <DualMicSetup 
-              allMics={micSystem.allMics}
-              isDarkMode={isDarkMode}
-              colors={colors}
-              onToggleActive={micSystem.toggleMicActive}
-              onToggleMute={micSystem.toggleMicMute}
-              onRemoveMic={micSystem.removeExtraMic}
-              onAddMic={() => micSystem.setShowAddMicModal(true)}
-            />
+            <TouchableOpacity
+              onPress={() => setShowRjSetupModal(true)}
+              style={{
+                flex: 1,
+                minWidth: 140,
+                borderRadius: 14,
+                padding: 14,
+                justifyContent: 'center',
+                backgroundColor: isDarkMode ? '#1E293B' : '#FFFFFF',
+                borderWidth: 1,
+                borderColor: isDarkMode ? '#334155' : '#E2E8F0',
+              }}
+            >
+              <Text style={{ fontSize: 13, fontWeight: '700', color: isDarkMode ? '#F1F5F9' : '#0F172A' }}>
+                Studio controls
+              </Text>
+              <Text style={styles.rjSetupHint}>
+                Dual player · FX controls · Local files · Mics
+              </Text>
+              <Text style={{ fontSize: 11, fontWeight: '600', color: isDarkMode ? '#6B8EFF' : '#4F6AF0', marginTop: 8 }}>
+                Open RJ Setup →
+              </Text>
+            </TouchableOpacity>
           </View>
 
           {/* PINNED MESSAGE */}
@@ -466,11 +529,8 @@ const RJStudio = ({ navigation }: any) => {
             onUnpin={() => chat.setPinnedMessage(null)}
           />
 
-          {/* MAIN COLUMNS */}
           <View style={styles.row}>
-            {/* LEFT COLUMN */}
-            <View style={styles.leftColumn}>
-
+            <View style={styles.mainContent}>
               <LiveChat 
                 messages={chat.messages}
                 filteredMessages={chat.filteredMessages}
@@ -492,6 +552,7 @@ const RJStudio = ({ navigation }: any) => {
                 onReply={chat.handleReply}
                 onShareMessage={() => {}}
                 onBanUser={chat.banUser}
+                onRestrictUser={chat.restrictUser}
                 onUnbanUser={chat.unbanUser}
                 onClearChat={chat.clearChat}
                 onPinMessage={chat.pinMessage}
@@ -504,101 +565,6 @@ const RJStudio = ({ navigation }: any) => {
                 onToggleBanList={() => chat.setShowBanList(!chat.showBanList)}
                 onScroll={chat.handleScroll}
               />
-
-              <SongRequests 
-                requests={requests.requests}  
-                newRequest={requests.newRequest}
-                songUrl={requests.songUrl}
-                showSongUrlInput={requests.showSongUrlInput}
-                isDarkMode={isDarkMode}
-                colors={colors}
-                onNewRequestChange={requests.setNewRequest}
-                onSendRequest={requests.handleNewRequest}
-                onVoteRequest={requests.voteRequest}
-                onPlayRequest={requests.playRequest}
-                onUrlChange={requests.setSongUrl}
-                onUrlSubmit={requests.handleUrlSubmit}
-                onToggleUrlInput={() => requests.setShowSongUrlInput(true)}
-                onCancelUrlInput={() => {
-                  requests.setShowSongUrlInput(false);
-                  requests.setSongUrl("");
-                }}
-              />
-            </View>
-
-            {/* RIGHT COLUMN */}
-            <View style={styles.rightColumn}>
-              <DualPlayer 
-                playerA={player.playerA}
-                playerB={player.playerB}
-                activePlayer={player.activePlayer}
-                crossfadeValue={player.crossfadeValue}
-                isCrossfading={player.isCrossfading}
-                isDarkMode={isDarkMode}
-                colors={colors}
-                onCrossfade={player.animateCrossfade}
-                onPlayUrlInPlayer={(playerId) => player.playStandbyTrack(playerId)}
-                onPauseActive={player.pauseActiveTrack}
-                onStopActive={player.stopActiveTrack}
-                onPauseStandby={player.pauseStandby}
-                onStopStandby={player.stopStandby}
-              />
-
-              <Mixer 
-                channels={mixer.channels}
-                activeChannel={activeChannel}
-                selectedFX={mixer.selectedFX}
-                masterGain={mixer.masterGain}
-                crossfader={mixer.crossfader}
-                isDarkMode={isDarkMode}
-                isMobile={isMobile}
-                colors={colors}
-                onSelectChannel={setActiveChannel}
-                onToggleMute={mixer.toggleMute}
-                onToggleSolo={mixer.toggleSolo}
-                onToggleCue={mixer.toggleCue}
-                onSelectFX={mixer.toggleFX}
-                onFXValueChange={(fxName, value) => mixer.onFXValueChange(fxName, value, activeChannel)}
-                onMasterGainChange={mixer.onMasterGainChange}
-                onCrossfaderChange={mixer.onCrossfaderChange}
-                onChannelVolumeChange={mixer.onChannelVolumeChange}
-                getChannelColor={mixer.getChannelColor}
-              />
-
-              {/* Master Controls */}
-              <View style={{ gap: 14 }}>
-                <View style={styles.masterControls}>
-                  <TouchableOpacity 
-                    onPress={toggleLive} 
-                    style={[styles.controlButton, { backgroundColor: '#6B7280' }]}
-                  >
-                    <Text style={{ fontSize: 11, fontWeight: '600', color: '#FFFFFF' }}>{isLive ? "STOP" : "GO LIVE"}</Text>
-                  </TouchableOpacity>
-                  {isLive && (
-                    <TouchableOpacity 
-                      onPress={() => timer.setIsPaused(!timer.isPaused)} 
-                      style={[styles.controlButton, { backgroundColor: isDarkMode ? '#FFFFFF' : '#000000' }]}
-                    >
-                      <Text style={{ fontSize: 11, fontWeight: '600', color: isDarkMode ? '#000000' : '#FFFFFF' }}>{timer.isPaused ? "RESUME" : "PAUSE"}</Text>
-                    </TouchableOpacity>
-                  )}
-                  <TouchableOpacity 
-                    onPress={player.handlePrevTrack} 
-                    disabled={!isLive} 
-                    style={[styles.controlButton, { backgroundColor: isDarkMode ? '#FFFFFF' : '#000000', opacity: !isLive ? 0.5 : 1 }]}
-                  >
-                    <Text style={{ fontSize: 11, fontWeight: '600', color: isDarkMode ? '#000000' : '#FFFFFF' }}>PREV</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity 
-                    onPress={player.handleNextTrack} 
-                    disabled={!isLive} 
-                    style={[styles.controlButton, { backgroundColor: '#6B7280', opacity: !isLive ? 0.5 : 1 }]}
-                  >
-                    <Text style={{ fontSize: 11, fontWeight: '600', color: '#FFFFFF' }}>NEXT</Text>
-                  </TouchableOpacity>
-                  <Text style={styles.timerText}>{timer.formatTime()}</Text>
-                </View>
-              </View>
             </View>
           </View>
         </ScrollView>
@@ -634,7 +600,7 @@ const RJStudio = ({ navigation }: any) => {
       <PlaylistModal 
         visible={playlist.showPlaylistModal}
         playlist={playlist.playlist}
-        availableSongs={playlist.availableSongs}
+        uploadedLocalFiles={playlist.uploadedLocalFiles}
         playlistDuration={playlist.playlistDuration}
         customDuration={playlist.customDuration}
         timerRemaining={playlist.timerRemaining}
@@ -642,12 +608,20 @@ const RJStudio = ({ navigation }: any) => {
         isPlaylistPaused={playlist.isPlaylistPaused} 
         isDarkMode={isDarkMode}
         colors={colors}
+        monitorData={playlist.monitorData}
+        currentPlaylistIndex={playlist.currentPlaylistIndex}
+        isSongInPlaylist={playlist.isSongInPlaylist}
+        isListening={isListening}
+        onListenToggle={handleListenToggle}
         onClose={() => playlist.setShowPlaylistModal(false)}
-        onAddSong={playlist.addToPlaylistFromLibrary}
+        onAddLocalFile={playlist.addLocalFileToPlaylist}
+        onUploadAndAddLocalFile={playlist.uploadAndAddLocalFile}
+        onClearPlaylist={playlist.clearPlaylist}
         onRemoveSong={playlist.removeFromPlaylist}
         onPausePlaylist={playlist.pausePlaylist}            
         onResumePlaylist={playlist.resumePlaylist}          
         onStopPlaylist={playlist.stopPlaylist}       
+        onSkipToNext={playlist.skipToNext}
         onStartPlaylist={playlist.startPlaylist}
         onSetDuration={(dur) => {
           playlist.setPlaylistDuration(dur);
@@ -657,27 +631,22 @@ const RJStudio = ({ navigation }: any) => {
         formatTimer={playlist.formatTimer}
       />
       
-      <AddMicModal 
-        visible={micSystem.showAddMicModal}
-        isDarkMode={isDarkMode}
-        colors={colors}
-        onClose={() => micSystem.setShowAddMicModal(false)}
-        onAddMic={(name) => {
-          micSystem.setNewMicName(name);
-          return micSystem.addNewMic();
-        }}
-      />
-      
       <GiftModal 
         visible={chat.showGiftModal}
         isDarkMode={isDarkMode}
         colors={colors}
         onClose={() => chat.setShowGiftModal(false)}
         onSendGift={(gift) => {
+          const text = `${gift.emoji} Sent ${gift.label} to everyone!`;
+          const sid = studioId ? String(studioId) : rjBackend.getStudioId();
+          if (rjBackend.isEnabled() && sid) {
+            chatSocket.sendGift(sid, gift.id, 'RJ');
+            void RjApi.sendGift(sid, { username: 'RJ', giftId: gift.id, giftLabel: gift.label }).catch(() => {});
+          }
           const giftMsg: Message = {
             id: Date.now(),
             user: "RJ",
-            text: `${gift} Sent a gift to everyone! 🎉`,
+            text,
             time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
             system: false,
             likeCount: 0,
@@ -687,21 +656,87 @@ const RJStudio = ({ navigation }: any) => {
             giftAmount: 1
           };
           chat.setMessages((prev: Message[]) => [...prev, giftMsg]);
-          notifications.addNotification("system", `🎁 RJ sent a ${gift} gift to everyone!`);
+          notifications.addNotification("system", `🎁 RJ sent ${gift.label} to everyone!`);
           setTimeout(() => chat.flatListRef.current?.scrollToEnd({ animated: true }), 100);
         }}
       />
       
+      <RjSetupModal
+        visible={showRjSetupModal}
+        isDarkMode={isDarkMode}
+        isMobile={isMobile}
+        colors={colors}
+        isLive={isLive}
+        activeChannel={activeChannel}
+        studioId={studioId}
+        timerFormatted={timer.formatTime()}
+        timerIsPaused={timer.isPaused}
+        onClose={() => setShowRjSetupModal(false)}
+        onToggleLive={toggleLive}
+        onToggleTimerPause={() => timer.setIsPaused(!timer.isPaused)}
+        onPlayLocalTrack={handleLocalFilePlayTrack}
+        onLoadLocalToStandby={(track, playerId) => {
+          if (!track || !track.title) {
+            console.error(`[LOAD ${playerId}] Invalid track object:`, track);
+            return;
+          }
+
+          if (playerId === 'A') player.setPlayerA(track);
+          if (playerId === 'B') player.setPlayerB(track);
+
+          void syncDualPlayer('load_to_player', { track, playerId });
+        }}
+        playerA={player.playerA}
+        playerB={player.playerB}
+        isPlayingA={player.isPlayingA}
+        isPlayingB={player.isPlayingB}
+        isLocalAudioMuted={rjStudio.isLocalAudioMuted}
+        onToggleLocalAudioMuted={() => {
+          useAppStore.getState().updateRjStudioState({ isLocalAudioMuted: !rjStudio.isLocalAudioMuted });
+        }}
+        activePlayer={player.activePlayer}
+        crossfadeValue={player.crossfadeValue}
+        isCrossfading={player.isCrossfading}
+        onCrossfade={player.animateCrossfade}
+        onPlayUrlInPlayer={(playerId) => player.playStandbyTrack(playerId)}
+        onPauseActive={player.pauseActiveTrack}
+        onTogglePlayActive={player.togglePlayActive}
+        onStopActive={player.stopActiveTrack}
+        onSwitchAtoB={player.switchAtoB}
+        onClearDeck={player.clearDeck}
+        onPauseStandby={player.pauseStandby}
+        onStopStandby={player.stopStandby}
+        allMics={micSystem.allMics}
+        onToggleMicActive={micSystem.toggleMicActive}
+        onToggleMicMute={micSystem.toggleMicMute}
+        onRemoveMic={micSystem.removeExtraMic}
+        onAddMic={async (name: string) => {
+          micSystem.setNewMicName(name);
+          return micSystem.addNewMic();
+        }}
+      />
+
       <StickerModal 
         visible={chat.showStickerModal}
         isDarkMode={isDarkMode}
         colors={colors}
         onClose={() => chat.setShowStickerModal(false)}
         onSendSticker={(sticker) => {
+          const text = sticker.emoji.repeat(3);
+          const sid = studioId ? String(studioId) : rjBackend.getStudioId();
+          if (rjBackend.isEnabled() && sid) {
+            chatSocket.sendSticker(sid, sticker.name, 'RJ');
+            void RjApi.sendEmoji(sid, {
+              username: 'RJ',
+              emojiId: sticker.name.toLowerCase().replace(/\s+/g, '-'),
+              emoji: sticker.emoji,
+              label: sticker.name,
+            }).catch(() => {});
+          }
           const stickerMsg: Message = {
             id: Date.now(),
             user: "RJ",
-            text: sticker.emoji.repeat(3),
+            text,
             time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
             system: false,
             likeCount: 0,

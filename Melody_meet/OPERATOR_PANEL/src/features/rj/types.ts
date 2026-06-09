@@ -1,9 +1,12 @@
 export interface PlaylistTrack {
   id: number;
+  serverId?: string;
+  localFileId?: string;
   title: string;
   artist: string;
   duration: string;
   bpm: number;
+  channel?: number;
 }
 
 export interface Track {
@@ -14,6 +17,8 @@ export interface Track {
   beatIntensity: number;
   duration: string;
   channel: number;
+  audioUrl?: string;
+  artwork?: string;
   shortTitle: string;
   gain: number;
   eq: { low: number; mid: number; high: number };

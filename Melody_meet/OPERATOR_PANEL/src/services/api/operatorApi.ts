@@ -4,32 +4,19 @@
  * Base URL auto-selects between Android emulator, iOS/web localhost.
  */
 
-import axios from 'axios';
-import { Platform } from 'react-native';
-
-const BASE =
-  (globalThis as any)?.process?.env?.EXPO_PUBLIC_API_URL ||
-  (Platform.OS === 'android' ? 'http://10.0.2.2:5000/api' : 'http://localhost:5000/api');
+import { apiClient, API_BASE, SERVER_ROOT, normalizeApiError } from './apiClient';
 
 export const getFileUrl = (path?: string) => {
   if (!path) return '';
   if (path.startsWith('http')) return path;
-  
-  // Strip /api from BASE to get the root server URL, then append path
-  const rootServer = BASE.replace(/\/api$/, '');
-  return `${rootServer}${path.startsWith('/') ? path : `/${path}`}`;
+  return `${SERVER_ROOT}${path.startsWith('/') ? path : `/${path}`}`;
 };
+
+const BASE = API_BASE;
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function normalizeError(err: any): Error {
-  const msg =
-    err?.response?.data?.error ||
-    err?.response?.data?.message ||
-    err?.message ||
-    'Request failed';
-  return new Error(msg);
-}
+const normalizeError = normalizeApiError;
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -102,7 +89,7 @@ export const StreamApi = {
   /** GET /api/streams — fetch all channels/streams */
   getAll: async (): Promise<Stream[]> => {
     try {
-      const { data } = await axios.get(`${BASE}/streams`);
+      const { data } = await apiClient.get('/streams');
       return data.data ?? [];
     } catch (err) {
       throw normalizeError(err);
@@ -112,7 +99,7 @@ export const StreamApi = {
   /** POST /api/streams — create a new channel */
   create: async (payload: { name: string; description?: string }): Promise<Stream> => {
     try {
-      const { data } = await axios.post(`${BASE}/streams`, payload);
+      const { data } = await apiClient.post(`/streams`, payload);
       return data.data;
     } catch (err) {
       throw normalizeError(err);
@@ -122,7 +109,7 @@ export const StreamApi = {
   /** PUT /api/streams/:id/live — go live */
   goLive: async (id: number | string): Promise<Stream> => {
     try {
-      const { data } = await axios.put(`${BASE}/streams/${id}/live`);
+      const { data } = await apiClient.put(`/streams/${id}/live`);
       return data.data;
     } catch (err) {
       throw normalizeError(err);
@@ -132,7 +119,7 @@ export const StreamApi = {
   /** PUT /api/streams/:id/stop — stop live */
   stopLive: async (id: number | string): Promise<Stream> => {
     try {
-      const { data } = await axios.put(`${BASE}/streams/${id}/stop`);
+      const { data } = await apiClient.put(`/streams/${id}/stop`);
       return data.data;
     } catch (err) {
       throw normalizeError(err);
@@ -146,7 +133,7 @@ export const StreamApi = {
     onProgress?: (pct: number) => void
   ): Promise<Track> => {
     try {
-      const { data } = await axios.post(`${BASE}/streams/${streamId}/tracks`, formData, {
+      const { data } = await apiClient.post(`/streams/${streamId}/tracks`, formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
         onUploadProgress: (e) => {
           if (onProgress && e.total) {
@@ -163,7 +150,7 @@ export const StreamApi = {
   /** DELETE /api/streams/tracks/:trackId */
   deleteTrack: async (trackId: number | string): Promise<void> => {
     try {
-      await axios.delete(`${BASE}/streams/tracks/${trackId}`);
+      await apiClient.delete(`/streams/tracks/${trackId}`);
     } catch (err) {
       throw normalizeError(err);
     }
@@ -172,7 +159,7 @@ export const StreamApi = {
   /** DELETE /api/streams/:id */
   delete: async (id: number | string): Promise<void> => {
     try {
-      await axios.delete(`${BASE}/streams/${id}`);
+      await apiClient.delete(`/streams/${id}`);
     } catch (err) {
       throw normalizeError(err);
     }
@@ -185,7 +172,7 @@ export const PodcastApi = {
   /** GET /api/podcasts */
   getAll: async (): Promise<Podcast[]> => {
     try {
-      const { data } = await axios.get(`${BASE}/podcasts`);
+      const { data } = await apiClient.get(`/podcasts`);
       return data.data ?? [];
     } catch (err) {
       throw normalizeError(err);
@@ -195,7 +182,7 @@ export const PodcastApi = {
   /** POST /api/podcasts — create metadata-only podcast */
   create: async (payload: Partial<Podcast>): Promise<Podcast> => {
     try {
-      const { data } = await axios.post(`${BASE}/podcasts`, payload);
+      const { data } = await apiClient.post(`/podcasts`, payload);
       return data.data;
     } catch (err) {
       throw normalizeError(err);
@@ -208,7 +195,7 @@ export const PodcastApi = {
     onProgress?: (pct: number) => void
   ): Promise<Podcast> => {
     try {
-      const { data } = await axios.post(`${BASE}/podcasts/upload`, formData, {
+      const { data } = await apiClient.post(`/podcasts/upload`, formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
         onUploadProgress: (e) => {
           if (onProgress && e.total) {
@@ -225,7 +212,7 @@ export const PodcastApi = {
   /** POST /api/podcasts/cover-art - upload episode thumbnail */
   uploadCoverArt: async (formData: FormData): Promise<{ coverArt: string }> => {
     try {
-      const { data } = await axios.post(`${BASE}/podcasts/cover-art`, formData, {
+      const { data } = await apiClient.post(`/podcasts/cover-art`, formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
       return data.data;
@@ -240,7 +227,7 @@ export const PodcastApi = {
     status: 'Draft' | 'Published' | 'Scheduled'
   ): Promise<Podcast> => {
     try {
-      const { data } = await axios.put(`${BASE}/podcasts/${id}/status`, { status });
+      const { data } = await apiClient.put(`/podcasts/${id}/status`, { status });
       return data.data;
     } catch (err) {
       throw normalizeError(err);
@@ -250,7 +237,7 @@ export const PodcastApi = {
   /** DELETE /api/podcasts/:id */
   delete: async (id: number | string): Promise<void> => {
     try {
-      await axios.delete(`${BASE}/podcasts/${id}`);
+      await apiClient.delete(`/podcasts/${id}`);
     } catch (err) {
       throw normalizeError(err);
     }
@@ -261,7 +248,7 @@ export const PodcastApi = {
   /** GET /api/podcasts/recordings */
   getRecordings: async (): Promise<any[]> => {
     try {
-      const { data } = await axios.get(`${BASE}/podcasts/recordings`);
+      const { data } = await apiClient.get(`/podcasts/recordings`);
       return data.data ?? [];
     } catch (err) {
       throw normalizeError(err);
@@ -271,7 +258,7 @@ export const PodcastApi = {
   /** POST /api/podcasts/recordings/upload */
   uploadRecording: async (formData: FormData): Promise<any> => {
     try {
-      const { data } = await axios.post(`${BASE}/podcasts/recordings/upload`, formData, {
+      const { data } = await apiClient.post(`/podcasts/recordings/upload`, formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
       return data.data;
@@ -283,7 +270,7 @@ export const PodcastApi = {
   /** POST /api/podcasts/recordings/:id/trim */
   trimRecording: async (id: number | string, payload: { name: string; trimRanges: any[] }): Promise<any> => {
     try {
-      const { data } = await axios.post(`${BASE}/podcasts/recordings/${id}/trim`, payload);
+      const { data } = await apiClient.post(`/podcasts/recordings/${id}/trim`, payload);
       return data.data;
     } catch (err) {
       throw normalizeError(err);
@@ -293,7 +280,7 @@ export const PodcastApi = {
   /** POST /api/podcasts/recordings/:id/volume */
   adjustVolume: async (id: number | string, volumeMultiplier: number): Promise<any> => {
     try {
-      const { data } = await axios.post(`${BASE}/podcasts/recordings/${id}/volume`, { volumeMultiplier });
+      const { data } = await apiClient.post(`/podcasts/recordings/${id}/volume`, { volumeMultiplier });
       return data.data;
     } catch (err) {
       throw normalizeError(err);
@@ -303,7 +290,7 @@ export const PodcastApi = {
   /** DELETE /api/podcasts/recordings/:id */
   deleteRecording: async (id: number | string): Promise<void> => {
     try {
-      await axios.delete(`${BASE}/podcasts/recordings/${id}`);
+      await apiClient.delete(`/podcasts/recordings/${id}`);
     } catch (err) {
       throw normalizeError(err);
     }
@@ -314,7 +301,7 @@ export const PodcastApi = {
   /** GET /api/podcasts/live/sessions */
   getLiveSessions: async (): Promise<any[]> => {
     try {
-      const { data } = await axios.get(`${BASE}/podcasts/live/sessions`);
+      const { data } = await apiClient.get(`/podcasts/live/sessions`);
       return data.data ?? [];
     } catch (err) {
       throw normalizeError(err);
@@ -324,7 +311,7 @@ export const PodcastApi = {
   /** POST /api/podcasts/live/start */
   startLiveSession: async (payload: { title: string; description?: string; roomId: string; roomLink?: string; host?: string }): Promise<any> => {
     try {
-      const { data } = await axios.post(`${BASE}/podcasts/live/start`, payload);
+      const { data } = await apiClient.post(`/podcasts/live/start`, payload);
       return data.data;
     } catch (err) {
       throw normalizeError(err);
@@ -334,7 +321,7 @@ export const PodcastApi = {
   /** POST /api/podcasts/live/stop */
   stopLiveSession: async (payload: { roomId: string; peakViewers: number; lastViewerCount: number }): Promise<any> => {
     try {
-      const { data } = await axios.post(`${BASE}/podcasts/live/stop`, payload);
+      const { data } = await apiClient.post(`/podcasts/live/stop`, payload);
       return data.data;
     } catch (err) {
       throw normalizeError(err);
@@ -344,7 +331,7 @@ export const PodcastApi = {
   /** PUT /api/podcasts/live/viewers */
   updateLiveViewers: async (roomId: string, viewerCount: number): Promise<any> => {
     try {
-      const { data } = await axios.put(`${BASE}/podcasts/live/viewers`, { roomId, viewerCount });
+      const { data } = await apiClient.put(`/podcasts/live/viewers`, { roomId, viewerCount });
       return data.data;
     } catch (err) {
       throw normalizeError(err);
@@ -357,7 +344,7 @@ export const PodcastApi = {
   getGuests: async (roomId: string, status?: string): Promise<any[]> => {
     try {
       const params = status ? { status } : {};
-      const { data } = await axios.get(`${BASE}/podcasts/live/guests/${roomId}`, { params });
+      const { data } = await apiClient.get(`/podcasts/live/guests/${roomId}`, { params });
       return data.data ?? [];
     } catch (err) {
       throw normalizeError(err);
@@ -367,7 +354,7 @@ export const PodcastApi = {
   /** POST /api/podcasts/live/guests/join */
   joinLiveSession: async (payload: { roomId: string; name: string; device?: string }): Promise<any> => {
     try {
-      const { data } = await axios.post(`${BASE}/podcasts/live/guests/join`, payload);
+      const { data } = await apiClient.post(`/podcasts/live/guests/join`, payload);
       return data.data;
     } catch (err) {
       throw normalizeError(err);
@@ -377,7 +364,7 @@ export const PodcastApi = {
   /** PUT /api/podcasts/live/guests/:id/respond */
   respondToGuest: async (id: number | string, action: 'approve' | 'deny'): Promise<any> => {
     try {
-      const { data } = await axios.put(`${BASE}/podcasts/live/guests/${id}/respond`, { action });
+      const { data } = await apiClient.put(`/podcasts/live/guests/${id}/respond`, { action });
       return data.data;
     } catch (err) {
       throw normalizeError(err);
@@ -387,7 +374,110 @@ export const PodcastApi = {
   /** DELETE /api/podcasts/live/guests/:id */
   removeGuest: async (id: number | string): Promise<void> => {
     try {
-      await axios.delete(`${BASE}/podcasts/live/guests/${id}`);
+      await apiClient.delete(`/podcasts/live/guests/${id}`);
+    } catch (err) {
+      throw normalizeError(err);
+    }
+  },
+
+  // ─── Guest Slots (Podcast Audio Deck — shareable mic links) ─────────────────
+
+  /**
+   * POST /api/podcasts/guest-slots/links/generate
+   * Returns shareable join URLs for MIC 2–5.
+   * Called once per session after startLiveSession.
+   */
+  generateGuestLinks: async (payload: { roomId: string; baseUrl?: string }): Promise<
+    Array<{ slotId: string; label: string; url: string }>
+  > => {
+    try {
+      const { data } = await apiClient.post(`/podcasts/guest-slots/links/generate`, payload);
+      return data.data ?? [];
+    } catch (err) {
+      throw normalizeError(err);
+    }
+  },
+
+  /**
+   * GET /api/podcasts/guest-slots/slots/:roomId
+   * Returns current occupancy for MIC 2–5.
+   */
+  getGuestSlots: async (roomId: string): Promise<
+    Array<{ slotId: string; label: string; status: string; guestName: string | null; guestId: number | null }>
+  > => {
+    try {
+      const { data } = await apiClient.get(`/podcasts/guest-slots/slots/${roomId}`);
+      return data.data ?? [];
+    } catch (err) {
+      throw normalizeError(err);
+    }
+  },
+
+  /**
+   * POST /api/podcasts/guest-slots/join (public — no JWT)
+   * Called by the guest join page.
+   */
+  joinGuestSlot: async (payload: {
+    roomId: string;
+    slotId: string;
+    guestName: string;
+    guestToken?: string;
+  }): Promise<{ id: number; slotId: string; guestToken: string; status: string }> => {
+    try {
+      const { data } = await apiClient.post(`/podcasts/guest-slots/join`, payload);
+      return data.data;
+    } catch (err) {
+      throw normalizeError(err);
+    }
+  },
+
+  /**
+   * POST /api/podcasts/guest-slots/leave (public — no JWT)
+   * Called by the guest join page on leave.
+   */
+  leaveGuestSlot: async (payload: {
+    roomId: string;
+    slotId: string;
+    guestToken: string;
+  }): Promise<void> => {
+    try {
+      await apiClient.post(`/podcasts/guest-slots/leave`, payload);
+    } catch (err) {
+      throw normalizeError(err);
+    }
+  },
+
+  /**
+   * DELETE /api/podcasts/guest-slots/slots/:roomId/:slotId
+   * Operator-kick a guest from a slot.
+   */
+  kickGuestSlot: async (roomId: string, slotId: string): Promise<void> => {
+    try {
+      await apiClient.delete(`/podcasts/guest-slots/slots/${roomId}/${slotId}`);
+    } catch (err) {
+      throw normalizeError(err);
+    }
+  },
+
+  /**
+   * PATCH /api/podcasts/guest-slots/slots/:roomId/:slotId/mute
+   * Operator mutes or unmutes a connected guest slot.
+   */
+  muteGuestSlot: async (roomId: string, slotId: string, muted: boolean): Promise<void> => {
+    try {
+      await apiClient.patch(`/podcasts/guest-slots/slots/${roomId}/${slotId}/mute`, { muted });
+    } catch (err) {
+      throw normalizeError(err);
+    }
+  },
+
+  /**
+   * PATCH /api/podcasts/guest-slots/slots/:roomId/:slotId/volume
+   * Operator sets absolute volume (0–200) on a guest slot.
+   */
+  setGuestSlotVolume: async (roomId: string, slotId: string, volume: number): Promise<void> => {
+    try {
+      await apiClient.patch(`/podcasts/guest-slots/slots/${roomId}/${slotId}/volume`, { volume });
     } catch (err) {
       throw normalizeError(err);
     }
@@ -396,7 +486,7 @@ export const PodcastApi = {
   // ─── MICS ────────────────────────────────────────────────────────
   getMics: async () => {
     try {
-      const { data } = await axios.get(`${BASE}/podcasts/mics`);
+      const { data } = await apiClient.get(`/podcasts/mics`);
       return data.data;
     } catch (err) {
       throw normalizeError(err);
@@ -404,7 +494,7 @@ export const PodcastApi = {
   },
   createMic: async (payload: any) => {
     try {
-      const { data } = await axios.post(`${BASE}/podcasts/mics`, payload);
+      const { data } = await apiClient.post(`/podcasts/mics`, payload);
       return data.data;
     } catch (err) {
       throw normalizeError(err);
@@ -412,7 +502,7 @@ export const PodcastApi = {
   },
   updateMic: async (id: number | string, payload: any) => {
     try {
-      const { data } = await axios.put(`${BASE}/podcasts/mics/${id}`, payload);
+      const { data } = await apiClient.put(`/podcasts/mics/${id}`, payload);
       return data.data;
     } catch (err) {
       throw normalizeError(err);
@@ -420,7 +510,7 @@ export const PodcastApi = {
   },
   deleteMic: async (id: number | string) => {
     try {
-      const { data } = await axios.delete(`${BASE}/podcasts/mics/${id}`);
+      const { data } = await apiClient.delete(`/podcasts/mics/${id}`);
       return data.data;
     } catch (err) {
       throw normalizeError(err);
@@ -434,7 +524,7 @@ export const AnalyticsApi = {
   /** GET /api/analytics/dashboard */
   getDashboard: async (): Promise<DashboardStats> => {
     try {
-      const { data } = await axios.get(`${BASE}/analytics/dashboard`);
+      const { data } = await apiClient.get(`/analytics/dashboard`);
       return data.data;
     } catch (err) {
       throw normalizeError(err);
@@ -444,7 +534,7 @@ export const AnalyticsApi = {
   /** GET /api/analytics/streams/:id */
   getStreamAnalytics: async (streamId: number | string) => {
     try {
-      const { data } = await axios.get(`${BASE}/analytics/streams/${streamId}`);
+      const { data } = await apiClient.get(`/analytics/streams/${streamId}`);
       return data.data;
     } catch (err) {
       throw normalizeError(err);
@@ -459,7 +549,7 @@ export const UsersApi = {
   getAll: async (role?: string): Promise<BackendUser[]> => {
     try {
       const params = role ? { role } : {};
-      const { data } = await axios.get(`${BASE}/users`, { params });
+      const { data } = await apiClient.get(`/users`, { params });
       return data.data ?? [];
     } catch (err) {
       throw normalizeError(err);
@@ -469,7 +559,7 @@ export const UsersApi = {
   /** GET /api/users/:id */
   getById: async (id: number | string): Promise<BackendUser> => {
     try {
-      const { data } = await axios.get(`${BASE}/users/${id}`);
+      const { data } = await apiClient.get(`/users/${id}`);
       return data.data;
     } catch (err) {
       throw normalizeError(err);
@@ -479,7 +569,7 @@ export const UsersApi = {
   /** PUT /api/users/:id — update profile */
   update: async (id: number | string, payload: Partial<BackendUser>): Promise<BackendUser> => {
     try {
-      const { data } = await axios.put(`${BASE}/users/${id}`, payload);
+      const { data } = await apiClient.put(`/users/${id}`, payload);
       return data.data;
     } catch (err) {
       throw normalizeError(err);
@@ -489,7 +579,7 @@ export const UsersApi = {
   /** PUT /api/users/:id/ban — toggle ban */
   ban: async (id: number | string): Promise<BackendUser> => {
     try {
-      const { data } = await axios.put(`${BASE}/users/${id}/ban`);
+      const { data } = await apiClient.put(`/users/${id}/ban`);
       return data.data;
     } catch (err) {
       throw normalizeError(err);
@@ -499,7 +589,7 @@ export const UsersApi = {
   /** POST /api/users/:id/report */
   report: async (id: number | string, reason: string): Promise<void> => {
     try {
-      await axios.post(`${BASE}/users/${id}/report`, { reason });
+      await apiClient.post(`/users/${id}/report`, { reason });
     } catch (err) {
       throw normalizeError(err);
     }
@@ -508,7 +598,7 @@ export const UsersApi = {
   /** DELETE /api/users/:id */
   delete: async (id: number | string): Promise<void> => {
     try {
-      await axios.delete(`${BASE}/users/${id}`);
+      await apiClient.delete(`/users/${id}`);
     } catch (err) {
       throw normalizeError(err);
     }
@@ -521,8 +611,8 @@ export const ActivityApi = {
   /** GET /api/activity/studios/:studioId/messages */
   getMessages: async (studioId: string | number, limit = 50) => {
     try {
-      const { data } = await axios.get(
-        `${BASE}/activity/studios/${studioId}/messages`,
+      const { data } = await apiClient.get(
+        `/activity/studios/${studioId}/messages`,
         { params: { limit } }
       );
       return data.data ?? [];
@@ -534,8 +624,8 @@ export const ActivityApi = {
   /** GET /api/activity/studios/:studioId/song-requests */
   getSongRequests: async (studioId: string | number) => {
     try {
-      const { data } = await axios.get(
-        `${BASE}/activity/studios/${studioId}/song-requests`
+      const { data } = await apiClient.get(
+        `/activity/studios/${studioId}/song-requests`
       );
       return data.data ?? [];
     } catch (err) {
@@ -550,8 +640,8 @@ export const ActivityApi = {
     status: string
   ) => {
     try {
-      const { data } = await axios.put(
-        `${BASE}/activity/studios/${studioId}/song-requests/${requestId}/status`,
+      const { data } = await apiClient.put(
+        `/activity/studios/${studioId}/song-requests/${requestId}/status`,
         { status }
       );
       return data.data;
@@ -563,8 +653,8 @@ export const ActivityApi = {
   /** GET /api/activity/studios/:studioId/reactions */
   getReactions: async (studioId: string | number) => {
     try {
-      const { data } = await axios.get(
-        `${BASE}/activity/studios/${studioId}/reactions`
+      const { data } = await apiClient.get(
+        `/activity/studios/${studioId}/reactions`
       );
       return data.data ?? [];
     } catch (err) {
@@ -575,7 +665,7 @@ export const ActivityApi = {
   /** GET /api/activity/live-sessions */
   getLiveSessions: async () => {
     try {
-      const { data } = await axios.get(`${BASE}/activity/live-sessions`);
+      const { data } = await apiClient.get(`/activity/live-sessions`);
       return data.data ?? [];
     } catch (err) {
       throw normalizeError(err);

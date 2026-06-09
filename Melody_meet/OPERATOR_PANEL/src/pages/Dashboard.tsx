@@ -17,8 +17,45 @@ interface DashboardProps {
   navigation: any;
 }
 
+// ─── Design tokens ────────────────────────────────────────────────────────────
+const T = {
+  light: {
+    bg:          '#F8FAFC',
+    card:        '#FFFFFF',
+    border:      '#E2E8F0',
+    text:        '#0F172A',
+    textSec:     '#475569',
+    textMuted:   '#94A3B8',
+    inputBg:     '#F1F5F9',
+    pillBg:      '#F1F5F9',
+    primaryBg:   '#4F6AF0',
+    primaryText: '#FFFFFF',
+    successBg:   '#059669',
+    dangerBg:    '#DC2626',
+    badgeBg:     '#EEF2FF',
+    badgeText:   '#4F6AF0',
+    offlineBg:   '#F1F5F9',
+  },
+  dark: {
+    bg:          '#0F172A',
+    card:        '#1E293B',
+    border:      '#334155',
+    text:        '#F1F5F9',
+    textSec:     '#94A3B8',
+    textMuted:   '#64748B',
+    inputBg:     '#263347',
+    pillBg:      '#263347',
+    primaryBg:   '#4F6AF0',
+    primaryText: '#FFFFFF',
+    successBg:   '#059669',
+    dangerBg:    '#DC2626',
+    badgeBg:     '#1E3A8A',
+    badgeText:   '#6B8EFF',
+    offlineBg:   '#1E293B',
+  },
+};
+
 const Dashboard: React.FC<DashboardProps> = ({ navigation }) => {
-  // Get from Zustand store
   const {
     dashboardDarkMode,
     dashboardNotificationsEnabled,
@@ -37,19 +74,18 @@ const Dashboard: React.FC<DashboardProps> = ({ navigation }) => {
   const { isLive, listeners, toggleLive, currentTrack, activeChannel } = useOperator();
   const { bufferHealth, getQualityText } = useStream();
   const { logout, user } = useAuth();
-  
-  // Local UI state (doesn't need persistence)
+
   const [localListeners, setLocalListeners] = useState(0);
   const [showSettings, setShowSettings] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [showGoLiveModal, setShowGoLiveModal] = useState(false);
   const [showQualityOptions, setShowQualityOptions] = useState(false);
-  // Backend data
   const [analyticsStats, setAnalyticsStats] = useState<any>(null);
   const [realPodcasts, setRealPodcasts] = useState<any[]>([]);
 
   const darkMode = dashboardDarkMode;
+  const c = darkMode ? T.dark : T.light;
   const unreadCount = dashboardNotifications.filter(n => !n.read).length;
 
   const mockPodcasts = [
@@ -76,7 +112,6 @@ const Dashboard: React.FC<DashboardProps> = ({ navigation }) => {
     podcast.host.toLowerCase().includes(dashboardSearchQuery.toLowerCase())
   );
 
-  // Simulate listener count when live (fallback when socket not connected)
   useEffect(() => {
     let interval: ReturnType<typeof setInterval> | undefined;
     if (isLive) {
@@ -89,21 +124,16 @@ const Dashboard: React.FC<DashboardProps> = ({ navigation }) => {
     return () => clearInterval(interval);
   }, [isLive]);
 
-  // Fetch real analytics + podcasts from backend on mount
   useEffect(() => {
     const fetchData = async () => {
       try {
         const stats = await AnalyticsApi.getDashboard();
         setAnalyticsStats(stats);
-      } catch {
-        // Backend offline — silent fail, mock data used
-      }
+      } catch { }
       try {
         const pods = await PodcastApi.getAll();
         if (pods.length > 0) setRealPodcasts(pods);
-      } catch {
-        // Backend offline — silent fail, mock data used
-      }
+      } catch { }
     };
     fetchData();
   }, []);
@@ -120,15 +150,13 @@ const Dashboard: React.FC<DashboardProps> = ({ navigation }) => {
     } else {
       Alert.alert('Logout', 'Are you sure you want to logout?', [
         { text: 'Cancel', style: 'cancel' },
-        { 
-          text: 'Logout', 
-          style: 'destructive', 
+        {
+          text: 'Logout',
+          style: 'destructive',
           onPress: async () => {
             await StorageService.clearAll();
             await logout();
-            if (navigation?.logout) {
-              navigation.logout();
-            }
+            if (navigation?.logout) navigation.logout();
           }
         },
       ]);
@@ -158,235 +186,269 @@ const Dashboard: React.FC<DashboardProps> = ({ navigation }) => {
   const currentSong = currentTrack?.title || 'STARGAZING';
   const currentArtist = currentTrack?.artist || 'Kygo';
   const channel = activeChannel || 1;
-  // Real listener count: prefer socket-driven value, fall back to local simulation
   const displayListeners = listeners > 0 ? listeners : localListeners;
-  // Real stats from backend (with fallback defaults)
   const peakListeners = analyticsStats?.streams?.totalViewers || 2800;
   const totalPodcasts = analyticsStats?.podcasts?.total || 0;
-
   const userName = user?.name || 'Operator';
   const userEmail = user?.email || 'operator@melodymeet.com';
   const userAvatar = userName?.charAt(0).toUpperCase() || 'O';
-
   const qualityOptions = ['Auto', 'Low', 'Medium', 'High', 'Lossless'];
 
-  const IconCircle = ({ icon, color }: { icon: string; color: string }) => (
-    <View className={`w-10 h-10 rounded-full items-center justify-center mb-2`} style={{ backgroundColor: color + '20' }}>
-      <Feather name={icon as any} size={20} color={color} />
+  // ─── Stat card ─────────────────────────────────────────────────────────────
+  const StatCard = ({ icon, value, label, iconColor, badgeText, badgePositive }: {
+    icon: string; value: string | number; label: string;
+    iconColor: string; badgeText: string; badgePositive?: boolean;
+  }) => (
+    <View style={{
+      flex: 1,
+      backgroundColor: c.card,
+      borderRadius: 14,
+      padding: 14,
+      alignItems: 'center',
+      borderWidth: 1,
+      borderColor: c.border,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 1 },
+      shadowOpacity: darkMode ? 0.2 : 0.04,
+      shadowRadius: 4,
+      elevation: 2,
+    }}>
+      <View style={{
+        width: 38, height: 38, borderRadius: 10,
+        backgroundColor: iconColor + '18',
+        justifyContent: 'center', alignItems: 'center', marginBottom: 8,
+      }}>
+        <Feather name={icon as any} size={18} color={iconColor} />
+      </View>
+      <Text style={{ fontSize: 22, fontWeight: '700', color: c.text }}>{value}</Text>
+      <Text style={{ fontSize: 11, color: c.textMuted, marginTop: 2 }}>{label}</Text>
+      <View style={{
+        backgroundColor: badgePositive !== false ? '#ECFDF5' : '#FEF2F2',
+        paddingHorizontal: 7, paddingVertical: 2, borderRadius: 6, marginTop: 6,
+      }}>
+        <Text style={{
+          fontSize: 10, fontWeight: '600',
+          color: badgePositive !== false ? '#059669' : '#DC2626',
+        }}>{badgeText}</Text>
+      </View>
     </View>
   );
 
   return (
-    <View className={`flex-1 pt-10 ${darkMode ? 'bg-[#121212]' : 'bg-[#F5F5F5]'}`}>
-      <ScrollView 
-        className="flex-1 px-4" 
+    <View style={{ flex: 1, paddingTop: Platform.OS === 'ios' ? 44 : 12, backgroundColor: c.bg }}>
+      <ScrollView
+        style={{ flex: 1 }}
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: isMobile ? 120 : 40 }}
+        contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: isMobile ? 120 : 40 }}
       >
-        {/* Header */}
-        <View className="flex-row items-center justify-between mb-5">
+        {/* ── Header ────────────────────────────────────────────────────── */}
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
           <View>
-            <Text className={`text-2xl font-bold ${darkMode ? 'text-white' : 'text-[#1A1A1A]'}`}>Dashboard</Text>
-            <View className={`w-12 h-0.5 mt-2 rounded-sm ${darkMode ? 'bg-white' : 'bg-[#1A1A1A]'}`} />
+            <Text style={{ fontSize: 22, fontWeight: '700', color: c.text, letterSpacing: -0.5 }}>Dashboard</Text>
+            <View style={{ width: 28, height: 3, backgroundColor: '#4F6AF0', borderRadius: 2, marginTop: 4 }} />
           </View>
-          <View className="flex-row gap-4">
-            <TouchableOpacity onPress={() => setShowSettings(true)}>
-              <Feather name="settings" size={22} color={darkMode ? '#888' : '#666'} />
+          <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+            <TouchableOpacity
+              onPress={() => setShowSettings(true)}
+              style={{ width: 36, height: 36, borderRadius: 9, backgroundColor: c.pillBg, justifyContent: 'center', alignItems: 'center' }}
+            >
+              <Feather name="settings" size={17} color={c.textSec} />
             </TouchableOpacity>
-            <TouchableOpacity onPress={() => setShowNotifications(true)} className="relative">
-              <Feather name="bell" size={22} color={darkMode ? '#888' : '#666'} />
+            <TouchableOpacity
+              onPress={() => setShowNotifications(true)}
+              style={{ width: 36, height: 36, borderRadius: 9, backgroundColor: c.pillBg, justifyContent: 'center', alignItems: 'center' }}
+            >
+              <Feather name="bell" size={17} color={c.textSec} />
               {unreadCount > 0 && (
-                <View className="absolute -top-1 -right-1.5 bg-gray-500 rounded-full min-w-4 h-4 items-center justify-center px-1">
-                  <Text className="text-[9px] font-bold text-white">{unreadCount}</Text>
+                <View style={{
+                  position: 'absolute', top: -2, right: -2,
+                  backgroundColor: '#4F6AF0', borderRadius: 8,
+                  minWidth: 16, height: 16, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 3,
+                }}>
+                  <Text style={{ fontSize: 9, fontWeight: '700', color: '#FFF' }}>{unreadCount}</Text>
                 </View>
               )}
             </TouchableOpacity>
-            <TouchableOpacity onPress={() => setShowProfileModal(true)}>
-              <Feather name="user" size={22} color={darkMode ? '#888' : '#666'} />
+            <TouchableOpacity
+              onPress={() => setShowProfileModal(true)}
+              style={{ width: 36, height: 36, borderRadius: 9, backgroundColor: c.pillBg, justifyContent: 'center', alignItems: 'center' }}
+            >
+              <Feather name="user" size={17} color={c.textSec} />
             </TouchableOpacity>
-            <TouchableOpacity onPress={handleLogout}>
-              <Feather name="log-out" size={22} color="#EF4444" />
+            <TouchableOpacity
+              onPress={handleLogout}
+              style={{ width: 36, height: 36, borderRadius: 9, backgroundColor: '#FEF2F2', justifyContent: 'center', alignItems: 'center' }}
+            >
+              <Feather name="log-out" size={17} color="#DC2626" />
             </TouchableOpacity>
           </View>
         </View>
 
-        {/* Stats Cards */}
+        {/* ── Stat Cards ────────────────────────────────────────────────── */}
         {isMobile ? (
-          <View className="mb-5">
-            <View className="flex-row gap-2 mb-2">
-              <View className={`flex-1 rounded-2xl p-3 items-center border ${darkMode ? 'bg-[#1E1E1E] border-[#333]' : 'bg-white border-[#E0E0E0]'}`}>
-                <IconCircle icon="headphones" color="#22C55E" />
-                <Text className={`text-2xl font-bold ${darkMode ? 'text-white' : 'text-[#1A1A1A]'}`}>{displayListeners}</Text>
-                <Text className={`text-xs mt-1 ${darkMode ? 'text-[#888]' : 'text-[#666]'}`}>Current</Text>
-                <View className="bg-gray-500 px-2 py-0.5 rounded-lg mt-1.5">
-                  <Text className="text-[9px] font-bold text-white">+12%</Text>
-                </View>
-              </View>
-
-              <View className={`flex-1 rounded-2xl p-3 items-center border ${darkMode ? 'bg-[#1E1E1E] border-[#333]' : 'bg-white border-[#E0E0E0]'}`}>
-                <IconCircle icon="trending-up" color="#22C55E" />
-                <Text className={`text-2xl font-bold ${darkMode ? 'text-white' : 'text-[#1A1A1A]'}`}>{peakListeners.toLocaleString()}</Text>
-                <Text className={`text-xs mt-1 ${darkMode ? 'text-[#888]' : 'text-[#666]'}`}>Peak</Text>
-                <View className="bg-gray-500 px-2 py-0.5 rounded-lg mt-1.5">
-                  <Text className="text-[9px] font-bold text-white">+8%</Text>
-                </View>
-              </View>
+          <View style={{ marginBottom: 16, gap: 8 }}>
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              <StatCard icon="headphones" value={displayListeners} label="Listeners" iconColor="#4F6AF0" badgeText="+12%" badgePositive />
+              <StatCard icon="trending-up" value={peakListeners.toLocaleString()} label="Peak" iconColor="#059669" badgeText="+8%" badgePositive />
             </View>
-
-            <View className="flex-row gap-2">
-              <View className={`flex-1 rounded-2xl p-3 items-center border ${darkMode ? 'bg-[#1E1E1E] border-[#333]' : 'bg-white border-[#E0E0E0]'}`}>
-                <IconCircle icon="clock" color="#EF4444" />
-                <Text className={`text-2xl font-bold ${darkMode ? 'text-white' : 'text-[#1A1A1A]'}`}>45m</Text>
-                <Text className={`text-xs mt-1 ${darkMode ? 'text-[#888]' : 'text-[#666]'}`}>Avg Time</Text>
-                <View className="bg-gray-500 px-2 py-0.5 rounded-lg mt-1.5">
-                  <Text className="text-[9px] font-bold text-white">-3%</Text>
-                </View>
-              </View>
-
-              <View className={`flex-1 rounded-2xl p-3 items-center border ${darkMode ? 'bg-[#1E1E1E] border-[#333]' : 'bg-white border-[#E0E0E0]'}`}>
-                <IconCircle icon="heart" color="#22C55E" />
-                <Text className={`text-2xl font-bold ${darkMode ? 'text-white' : 'text-[#1A1A1A]'}`}>91%</Text>
-                <Text className={`text-xs mt-1 ${darkMode ? 'text-[#888]' : 'text-[#666]'}`}>Engagement</Text>
-                <View className="bg-gray-500 px-2 py-0.5 rounded-lg mt-1.5">
-                  <Text className="text-[9px] font-bold text-white">+5%</Text>
-                </View>
-              </View>
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              <StatCard icon="clock" value="45m" label="Avg Time" iconColor="#D97706" badgeText="-3%" badgePositive={false} />
+              <StatCard icon="heart" value="91%" label="Engagement" iconColor="#7C3AED" badgeText="+5%" badgePositive />
             </View>
           </View>
         ) : (
-          <View className="flex-row gap-2 mb-5">
-            <View className={`flex-1 rounded-2xl p-3 items-center border ${darkMode ? 'bg-[#1E1E1E] border-[#333]' : 'bg-white border-[#E0E0E0]'}`}>
-              <IconCircle icon="headphones" color="#22C55E" />
-              <Text className={`text-2xl font-bold ${darkMode ? 'text-white' : 'text-[#1A1A1A]'}`}>{displayListeners}</Text>
-              <Text className={`text-xs mt-1 ${darkMode ? 'text-[#888]' : 'text-[#666]'}`}>Current</Text>
-              <View className="bg-gray-500 px-2 py-0.5 rounded-lg mt-1.5">
-                <Text className="text-[9px] font-bold text-white">+12%</Text>
-              </View>
-            </View>
-
-            <View className={`flex-1 rounded-2xl p-3 items-center border ${darkMode ? 'bg-[#1E1E1E] border-[#333]' : 'bg-white border-[#E0E0E0]'}`}>
-              <IconCircle icon="trending-up" color="#22C55E" />
-              <Text className={`text-2xl font-bold ${darkMode ? 'text-white' : 'text-[#1A1A1A]'}`}>{peakListeners.toLocaleString()}</Text>
-              <Text className={`text-xs mt-1 ${darkMode ? 'text-[#888]' : 'text-[#666]'}`}>Peak</Text>
-              <View className="bg-gray-500 px-2 py-0.5 rounded-lg mt-1.5">
-                <Text className="text-[9px] font-bold text-white">+8%</Text>
-              </View>
-            </View>
-
-            <View className={`flex-1 rounded-2xl p-3 items-center border ${darkMode ? 'bg-[#1E1E1E] border-[#333]' : 'bg-white border-[#E0E0E0]'}`}>
-              <IconCircle icon="clock" color="#EF4444" />
-              <Text className={`text-2xl font-bold ${darkMode ? 'text-white' : 'text-[#1A1A1A]'}`}>45m</Text>
-              <Text className={`text-xs mt-1 ${darkMode ? 'text-[#888]' : 'text-[#666]'}`}>Avg Time</Text>
-              <View className="bg-gray-500 px-2 py-0.5 rounded-lg mt-1.5">
-                <Text className="text-[9px] font-bold text-white">-3%</Text>
-              </View>
-            </View>
-
-            <View className={`flex-1 rounded-2xl p-3 items-center border ${darkMode ? 'bg-[#1E1E1E] border-[#333]' : 'bg-white border-[#E0E0E0]'}`}>
-              <IconCircle icon="heart" color="#22C55E" />
-              <Text className={`text-2xl font-bold ${darkMode ? 'text-white' : 'text-[#1A1A1A]'}`}>91%</Text>
-              <Text className={`text-xs mt-1 ${darkMode ? 'text-[#888]' : 'text-[#666]'}`}>Engagement</Text>
-              <View className="bg-gray-500 px-2 py-0.5 rounded-lg mt-1.5">
-                <Text className="text-[9px] font-bold text-white">+5%</Text>
-              </View>
-            </View>
+          <View style={{ flexDirection: 'row', gap: 10, marginBottom: 16 }}>
+            <StatCard icon="headphones" value={displayListeners} label="Listeners" iconColor="#4F6AF0" badgeText="+12%" badgePositive />
+            <StatCard icon="trending-up" value={peakListeners.toLocaleString()} label="Peak" iconColor="#059669" badgeText="+8%" badgePositive />
+            <StatCard icon="clock" value="45m" label="Avg Time" iconColor="#D97706" badgeText="-3%" badgePositive={false} />
+            <StatCard icon="heart" value="91%" label="Engagement" iconColor="#7C3AED" badgeText="+5%" badgePositive />
           </View>
         )}
 
-        {/* Status Card */}
-        <View className={`rounded-2xl p-5 mb-4 border ${darkMode ? 'bg-[#1E1E1E] border-[#333]' : 'bg-white border-[#E0E0E0]'}`}>
-          <View className="flex-row items-center justify-between py-2">
-            <Text className={`text-sm font-medium ${darkMode ? 'text-white' : 'text-[#1A1A1A]'}`}>Channel Status</Text>
-            <Text className={`text-sm font-bold ${isLive ? 'text-gray-500' : (darkMode ? 'text-[#888]' : 'text-[#666]')}`}>{isLive ? 'Live' : 'Offline'}</Text>
-          </View>
-          <View className="flex-row items-center justify-between py-2">
-            <Text className={`text-sm font-medium ${darkMode ? 'text-white' : 'text-[#1A1A1A]'}`}>Listeners</Text>
-            <Text className={`text-sm font-bold ${darkMode ? 'text-white' : 'text-[#1A1A1A]'}`}>{isLive ? displayListeners : 0}</Text>
-          </View>
-          <View className="flex-row items-center justify-between py-2">
-            <Text className={`text-sm font-medium ${darkMode ? 'text-white' : 'text-[#1A1A1A]'}`}>Stream Health</Text>
-            <Text className={`text-sm font-bold ${darkMode ? 'text-white' : 'text-[#1A1A1A]'}`}>{isLive ? getQualityText() : 'Offline'}</Text>
-          </View>
+        {/* ── Status Card ───────────────────────────────────────────────── */}
+        <View style={{
+          backgroundColor: c.card, borderRadius: 14, padding: 16, marginBottom: 14,
+          borderWidth: 1, borderColor: c.border,
+          shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: darkMode ? 0.15 : 0.04, shadowRadius: 4, elevation: 2,
+        }}>
+          <Text style={{ fontSize: 12, fontWeight: '600', color: c.textMuted, marginBottom: 10, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+            Stream Status
+          </Text>
+          {[
+            { label: 'Channel Status', value: isLive ? 'Live' : 'Offline', valueColor: isLive ? '#059669' : c.textMuted },
+            { label: 'Listeners',      value: isLive ? String(displayListeners) : '0' },
+            { label: 'Stream Health',  value: isLive ? getQualityText() : 'Offline' },
+          ].map((row, i, arr) => (
+            <View key={row.label} style={{
+              flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+              paddingVertical: 10,
+              borderBottomWidth: i < arr.length - 1 ? 1 : 0,
+              borderBottomColor: c.border,
+            }}>
+              <Text style={{ fontSize: 13, color: c.textSec }}>{row.label}</Text>
+              <Text style={{ fontSize: 13, fontWeight: '600', color: row.valueColor ?? c.text }}>{row.value}</Text>
+            </View>
+          ))}
         </View>
 
-        {/* Buttons */}
-        <View className="flex-row gap-3 mb-6">
-          <TouchableOpacity 
-            onPress={() => setShowGoLiveModal(true)} 
-            className={`flex-1 py-3.5 rounded-full border ${darkMode ? 'bg-[#1E1E1E] border-[#333]' : 'bg-white border-[#E0E0E0]'}`}
+        {/* ── Action Buttons ────────────────────────────────────────────── */}
+        <View style={{ flexDirection: 'row', gap: 10, marginBottom: 20 }}>
+          <TouchableOpacity
+            onPress={() => setShowGoLiveModal(true)}
+            style={{
+              flex: 1, paddingVertical: 13, borderRadius: 12,
+              backgroundColor: isLive ? '#DC2626' : '#4F6AF0',
+              alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 6,
+              shadowColor: isLive ? '#DC2626' : '#4F6AF0',
+              shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.25, shadowRadius: 8, elevation: 4,
+            }}
           >
-            <Text className={`font-bold text-center ${darkMode ? 'text-white' : 'text-[#1A1A1A]'}`}>
+            <Feather name={isLive ? 'square' : 'radio'} size={15} color="#FFF" />
+            <Text style={{ color: '#FFF', fontWeight: '700', fontSize: 14 }}>
               {isLive ? 'End Live' : 'Go Live'}
             </Text>
           </TouchableOpacity>
-          
-          <TouchableOpacity 
-            onPress={() => navigation.navigate('Podcast')} 
-            className={`flex-1 py-3.5 rounded-full border ${darkMode ? 'bg-[#1E1E1E] border-[#333]' : 'bg-white border-[#E0E0E0]'}`}
+
+          <TouchableOpacity
+            onPress={() => navigation.navigate('Podcast')}
+            style={{
+              flex: 1, paddingVertical: 13, borderRadius: 12,
+              backgroundColor: c.card,
+              borderWidth: 1, borderColor: c.border,
+              alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 6,
+            }}
           >
-            <Text className={`text-center font-bold ${darkMode ? 'text-white' : 'text-[#1A1A1A]'}`}>
-              Schedule
-            </Text>
+            <Feather name="calendar" size={15} color={c.textSec} />
+            <Text style={{ color: c.textSec, fontWeight: '600', fontSize: 14 }}>Schedule</Text>
           </TouchableOpacity>
         </View>
 
-        {/* LIVE CONTENT */}
+        {/* ── Live Content ──────────────────────────────────────────────── */}
         {isLive && (
-          <View className={`flex-col ${!isMobile ? 'md:flex-row' : ''} gap-5`}>
-            <View className="flex-1">
-              <View className={`flex-row items-center rounded-full border px-4 mb-5 ${darkMode ? 'bg-[#1E1E1E] border-[#333]' : 'bg-white border-[#E0E0E0]'}`}>
-                <Feather name="search" size={18} color={darkMode ? '#888' : '#666'} />
-                <TextInput 
-                  placeholder="Search by title or host..." 
-                  placeholderTextColor={darkMode ? '#888' : '#666'} 
-                  value={dashboardSearchQuery} 
-                  onChangeText={setDashboardSearchQuery} 
-                  className="flex-1 py-3 px-2.5"
-                  style={{ color: darkMode ? '#FFF' : '#1A1A1A' }}
+          <View style={{ flexDirection: isMobile ? 'column' : 'row', gap: 14 }}>
+            {/* Now Playing */}
+            <View style={{ flex: 1 }}>
+              {/* Search */}
+              <View style={{
+                flexDirection: 'row', alignItems: 'center',
+                backgroundColor: c.inputBg, borderRadius: 10,
+                paddingHorizontal: 12, marginBottom: 12, height: 42,
+                borderWidth: 1, borderColor: c.border,
+              }}>
+                <Feather name="search" size={15} color={c.textMuted} />
+                <TextInput
+                  placeholder="Search podcasts..."
+                  placeholderTextColor={c.textMuted}
+                  value={dashboardSearchQuery}
+                  onChangeText={setDashboardSearchQuery}
+                  style={{ flex: 1, paddingHorizontal: 10, fontSize: 13, color: c.text }}
                 />
               </View>
 
-              <View className={`rounded-2xl p-5 border ${darkMode ? 'bg-[#1E1E1E] border-[#333]' : 'bg-white border-[#E0E0E0]'}`}>
-                <Text className={`text-xs font-semibold mb-3 ${darkMode ? 'text-[#888]' : 'text-[#666]'}`}>Now Playing</Text>
-                <View className="flex-row items-center gap-1.5 mb-2">
-                  <View className="w-2 h-2 bg-gray-500 rounded-full" />
-                  <Text className="text-[10px] font-bold text-gray-500">LIVE</Text>
+              <View style={{
+                backgroundColor: c.card, borderRadius: 14, padding: 16,
+                borderWidth: 1, borderColor: c.border,
+                shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: darkMode ? 0.15 : 0.04, shadowRadius: 4, elevation: 2,
+              }}>
+                <Text style={{ fontSize: 11, fontWeight: '600', color: c.textMuted, marginBottom: 10, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                  Now Playing
+                </Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+                  <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: '#DC2626' }} />
+                  <Text style={{ fontSize: 10, fontWeight: '700', color: '#DC2626', letterSpacing: 1 }}>LIVE</Text>
                 </View>
-                <Text className={`text-2xl font-bold ${darkMode ? 'text-white' : 'text-[#1A1A1A]'}`}>{currentSong}</Text>
-                <Text className={`text-sm mb-4 ${darkMode ? 'text-[#888]' : 'text-[#666]'}`}>{currentArtist}</Text>
-                <View className="flex-row gap-3 mb-4">
-                  <View className="px-3 py-1.5 rounded-full" style={{ backgroundColor: darkMode ? '#2A2A2A' : '#F0F0F0' }}>
-                    <Text className={`text-[11px] font-semibold ${darkMode ? 'text-white' : 'text-[#1A1A1A]'}`}>CH{channel}</Text>
+                <Text style={{ fontSize: 22, fontWeight: '700', color: c.text, letterSpacing: -0.3 }}>{currentSong}</Text>
+                <Text style={{ fontSize: 13, color: c.textSec, marginTop: 2, marginBottom: 12 }}>{currentArtist}</Text>
+
+                <View style={{ flexDirection: 'row', gap: 8, marginBottom: 14 }}>
+                  <View style={{ paddingHorizontal: 10, paddingVertical: 5, borderRadius: 7, backgroundColor: c.pillBg }}>
+                    <Text style={{ fontSize: 11, fontWeight: '600', color: c.textSec }}>CH{channel}</Text>
                   </View>
-                  <View className="flex-row items-center gap-1 px-3 py-1.5 rounded-full" style={{ backgroundColor: darkMode ? '#2A2A2A' : '#F0F0F0' }}>
-                    <Feather name="headphones" size={12} color={darkMode ? '#888' : '#666'} />
-                    <Text className={`text-[11px] font-semibold ${darkMode ? 'text-white' : 'text-[#1A1A1A]'}`}>{displayListeners}</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 7, backgroundColor: c.pillBg }}>
+                    <Feather name="headphones" size={11} color={c.textSec} />
+                    <Text style={{ fontSize: 11, fontWeight: '600', color: c.textSec }}>{displayListeners}</Text>
                   </View>
                 </View>
-                <TouchableOpacity onPress={() => navigation.navigate('RJStudio')} className="items-center py-3 rounded-full" style={{ backgroundColor: darkMode ? '#2A2A2A' : '#F0F0F0' }}>
-                  <Text className={`text-xs font-medium ${darkMode ? 'text-white' : 'text-[#1A1A1A]'}`}>Enter Studio →</Text>
+
+                <TouchableOpacity
+                  onPress={() => navigation.navigate('RJStudio')}
+                  style={{
+                    alignItems: 'center', paddingVertical: 10, borderRadius: 10,
+                    backgroundColor: '#4F6AF0',
+                  }}
+                >
+                  <Text style={{ fontSize: 13, fontWeight: '600', color: '#FFF' }}>Enter Studio →</Text>
                 </TouchableOpacity>
               </View>
             </View>
 
-            <View className="flex-1">
-              <View className="flex-row items-center justify-between mb-3">
-                <Text className={`text-base font-bold ${darkMode ? 'text-white' : 'text-[#1A1A1A]'}`}>Latest Podcasts</Text>
+            {/* Podcast list */}
+            <View style={{ flex: 1 }}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                <Text style={{ fontSize: 15, fontWeight: '700', color: c.text }}>Latest Podcasts</Text>
                 <TouchableOpacity onPress={() => navigation.navigate('Podcast')}>
-                  <Text className={`text-xs ${darkMode ? 'text-[#888]' : 'text-[#666]'}`}>View All →</Text>
+                  <Text style={{ fontSize: 12, color: '#4F6AF0', fontWeight: '500' }}>View All →</Text>
                 </TouchableOpacity>
               </View>
               {podcasts.map((podcast: any) => (
-                <TouchableOpacity key={podcast.id} onPress={() => navigation.navigate('Podcast')} className={`flex-row justify-between items-center rounded-2xl p-3 mb-2.5 border ${darkMode ? 'bg-[#1E1E1E] border-[#333]' : 'bg-white border-[#E0E0E0]'}`}>
-                  <View className="flex-1">
-                    <Text className={`text-sm font-bold ${darkMode ? 'text-white' : 'text-[#1A1A1A]'}`}>{podcast.name}</Text>
-                    <Text className={`text-[11px] ${darkMode ? 'text-[#888]' : 'text-[#666]'}`}>{podcast.host}</Text>
-                    <Text className={`text-[10px] mt-0.5 ${darkMode ? 'text-[#888]' : 'text-[#666]'}`}>{podcast.duration} • {podcast.episodes} eps</Text>
+                <TouchableOpacity
+                  key={podcast.id}
+                  onPress={() => navigation.navigate('Podcast')}
+                  style={{
+                    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+                    backgroundColor: c.card, borderRadius: 12, padding: 12, marginBottom: 8,
+                    borderWidth: 1, borderColor: c.border,
+                  }}
+                >
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 13, fontWeight: '600', color: c.text }}>{podcast.name}</Text>
+                    <Text style={{ fontSize: 11, color: c.textSec, marginTop: 1 }}>{podcast.host}</Text>
+                    <Text style={{ fontSize: 10, color: c.textMuted, marginTop: 2 }}>{podcast.duration} · {podcast.episodes} eps</Text>
                   </View>
-                  <View className="items-end">
-                    <Text className={`text-sm font-bold ${darkMode ? 'text-white' : 'text-[#1A1A1A]'}`}>{podcast.listeners}</Text>
-                    <Text className={`text-[10px] mt-0.5 ${darkMode ? 'text-[#888]' : 'text-[#666]'}`}>{podcast.time}</Text>
-                    <Text className={`text-[10px] mt-0.5 ${darkMode ? 'text-[#888]' : 'text-[#666]'}`}>Listen →</Text>
+                  <View style={{ alignItems: 'flex-end' }}>
+                    <Text style={{ fontSize: 13, fontWeight: '600', color: c.text }}>{podcast.listeners}</Text>
+                    <Text style={{ fontSize: 10, color: c.textMuted, marginTop: 1 }}>{podcast.time}</Text>
+                    <Text style={{ fontSize: 10, color: '#4F6AF0', marginTop: 3, fontWeight: '500' }}>Listen →</Text>
                   </View>
                 </TouchableOpacity>
               ))}
@@ -394,84 +456,103 @@ const Dashboard: React.FC<DashboardProps> = ({ navigation }) => {
           </View>
         )}
 
-        {/* Offline Message */}
+        {/* ── Offline State ─────────────────────────────────────────────── */}
         {!isLive && (
-          <View className={`rounded-3xl p-10 items-center border gap-3 ${darkMode ? 'bg-[#1E1E1E] border-[#333]' : 'bg-white border-[#E0E0E0]'}`}>
-            <Feather name="mic-off" size={48} color={darkMode ? '#888' : '#666'} />
-            <Text className={`text-lg font-bold ${darkMode ? 'text-white' : 'text-[#1A1A1A]'}`}>No active broadcast</Text>
-            <Text className={`text-xs text-center ${darkMode ? 'text-[#888]' : 'text-[#666]'}`}>Tap 'Go Live' to start streaming and view content</Text>
+          <View style={{
+            backgroundColor: c.card, borderRadius: 16, padding: 40,
+            alignItems: 'center', borderWidth: 1, borderColor: c.border, gap: 10,
+          }}>
+            <View style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: c.offlineBg, justifyContent: 'center', alignItems: 'center' }}>
+              <Feather name="mic-off" size={28} color={c.textMuted} />
+            </View>
+            <Text style={{ fontSize: 16, fontWeight: '700', color: c.text, marginTop: 4 }}>No active broadcast</Text>
+            <Text style={{ fontSize: 13, color: c.textMuted, textAlign: 'center' }}>
+              Tap 'Go Live' to start streaming and view your content
+            </Text>
           </View>
         )}
       </ScrollView>
 
-      {/* Profile Modal */}
+      {/* ── Profile Modal ─────────────────────────────────────────────────── */}
       <Modal visible={showProfileModal} transparent animationType="fade">
-        <View className="items-center justify-center flex-1 bg-black/70">
-          <View className={`rounded-2xl p-5 w-[85%] max-w-[320px] ${darkMode ? 'bg-[#1E1E1E]' : 'bg-white'}`}>
-            <View className="flex-row items-center justify-between mb-4">
-              <Text className={`text-lg font-bold ${darkMode ? 'text-white' : 'text-[#1A1A1A]'}`}>User Profile</Text>
-              <TouchableOpacity onPress={() => setShowProfileModal(false)}>
-                <Feather name="x" size={22} color={darkMode ? '#888' : '#666'} />
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' }}>
+          <View style={{ backgroundColor: c.card, borderRadius: 18, padding: 20, width: '85%', maxWidth: 320 }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <Text style={{ fontSize: 17, fontWeight: '700', color: c.text }}>Profile</Text>
+              <TouchableOpacity onPress={() => setShowProfileModal(false)}
+                style={{ width: 30, height: 30, borderRadius: 8, backgroundColor: c.pillBg, justifyContent: 'center', alignItems: 'center' }}>
+                <Feather name="x" size={16} color={c.textSec} />
               </TouchableOpacity>
             </View>
-            
-            <View className="items-center mb-5">
-              <View className="items-center justify-center w-20 h-20 mb-3 rounded-full" style={{ backgroundColor: darkMode ? '#2A2A2A' : '#F0F0F0' }}>
-                <Text className="text-4xl">{userAvatar}</Text>
+
+            <View style={{ alignItems: 'center', marginBottom: 16 }}>
+              <View style={{
+                width: 72, height: 72, borderRadius: 36, backgroundColor: '#EEF2FF',
+                justifyContent: 'center', alignItems: 'center', marginBottom: 10,
+              }}>
+                <Text style={{ fontSize: 28, fontWeight: '700', color: '#4F6AF0' }}>{userAvatar}</Text>
               </View>
-              <Text className={`text-lg font-bold ${darkMode ? 'text-white' : 'text-[#1A1A1A]'}`}>{userName}</Text>
-              <Text className={`text-xs mt-0.5 ${darkMode ? 'text-[#888]' : 'text-[#666]'}`}>{userEmail}</Text>
+              <Text style={{ fontSize: 16, fontWeight: '700', color: c.text }}>{userName}</Text>
+              <Text style={{ fontSize: 12, color: c.textMuted, marginTop: 2 }}>{userEmail}</Text>
             </View>
 
-            <View className={`border-b mb-3 ${darkMode ? 'border-[#333]' : 'border-[#E0E0E0]'}`} />
-            
-            <TouchableOpacity onPress={() => { setShowProfileModal(false); navigation.navigate('RJStudio'); }} className="flex-row items-center gap-3 py-3">
-              <Feather name="mic" size={20} color={darkMode ? '#FFF' : '#1A1A1A'} />
-              <Text className={`text-sm ${darkMode ? 'text-white' : 'text-[#1A1A1A]'}`}>RJ Studio</Text>
-            </TouchableOpacity>
-            
-            <TouchableOpacity onPress={() => { setShowProfileModal(false); navigation.navigate('Podcast'); }} className="flex-row items-center gap-3 py-3">
-              <Feather name="headphones" size={20} color={darkMode ? '#FFF' : '#1A1A1A'} />
-              <Text className={`text-sm ${darkMode ? 'text-white' : 'text-[#1A1A1A]'}`}>Podcast Host</Text>
-            </TouchableOpacity>
-
+            <View style={{ borderTopWidth: 1, borderTopColor: c.border, paddingTop: 10 }}>
+              {[
+                { icon: 'mic', label: 'RJ Studio', screen: 'RJStudio' },
+                { icon: 'headphones', label: 'Podcast Host', screen: 'Podcast' },
+              ].map((item) => (
+                <TouchableOpacity
+                  key={item.screen}
+                  onPress={() => { setShowProfileModal(false); navigation.navigate(item.screen); }}
+                  style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: c.border }}
+                >
+                  <Feather name={item.icon as any} size={17} color={c.textSec} />
+                  <Text style={{ fontSize: 14, color: c.text }}>{item.label}</Text>
+                  <Feather name="chevron-right" size={14} color={c.textMuted} style={{ marginLeft: 'auto' }} />
+                </TouchableOpacity>
+              ))}
+            </View>
           </View>
         </View>
       </Modal>
 
-      {/* Notifications Modal */}
+      {/* ── Notifications Modal ───────────────────────────────────────────── */}
       <Modal visible={showNotifications} transparent animationType="fade">
-        <View className="items-center justify-center flex-1 bg-black/70">
-          <View className={`rounded-2xl p-4 w-[85%] max-w-[320px] max-h-[70%] ${darkMode ? 'bg-[#1E1E1E]' : 'bg-white'}`}>
-            <View className="flex-row items-center justify-between mb-3">
-              <Text className={`text-lg font-bold ${darkMode ? 'text-white' : 'text-[#1A1A1A]'}`}>Notifications</Text>
-              <View className="flex-row gap-3">
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' }}>
+          <View style={{ backgroundColor: c.card, borderRadius: 18, padding: 16, width: '85%', maxWidth: 340, maxHeight: '70%' }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+              <Text style={{ fontSize: 17, fontWeight: '700', color: c.text }}>Notifications</Text>
+              <View style={{ flexDirection: 'row', gap: 10, alignItems: 'center' }}>
                 {unreadCount > 0 && (
                   <TouchableOpacity onPress={markAllDashboardNotificationsRead}>
-                    <Text className={`text-xs ${darkMode ? 'text-[#888]' : 'text-[#666]'}`}>Mark all read</Text>
+                    <Text style={{ fontSize: 12, color: '#4F6AF0', fontWeight: '500' }}>Mark all read</Text>
                   </TouchableOpacity>
                 )}
-                <TouchableOpacity onPress={() => setShowNotifications(false)}>
-                  <Feather name="x" size={22} color={darkMode ? '#888' : '#666'} />
+                <TouchableOpacity onPress={() => setShowNotifications(false)}
+                  style={{ width: 28, height: 28, borderRadius: 7, backgroundColor: c.pillBg, justifyContent: 'center', alignItems: 'center' }}>
+                  <Feather name="x" size={14} color={c.textSec} />
                 </TouchableOpacity>
               </View>
             </View>
-            <ScrollView showsVerticalScrollIndicator={true}>
+            <ScrollView showsVerticalScrollIndicator={false}>
               {dashboardNotifications.map((notif) => (
-                <TouchableOpacity 
-                  key={notif.id} 
+                <TouchableOpacity
+                  key={notif.id}
                   onPress={() => markDashboardNotificationRead(notif.id)}
-                  className={`py-2.5 px-2 rounded-lg mb-1 ${!notif.read && (darkMode ? 'bg-[#2A2A2A]' : 'bg-[#F5F5F5]')}`}
-                  style={{ borderBottomWidth: 1, borderBottomColor: darkMode ? '#333' : '#E0E0E0' }}
+                  style={{
+                    padding: 10, borderRadius: 10, marginBottom: 6,
+                    backgroundColor: !notif.read ? (darkMode ? '#1E3A8A18' : '#EEF2FF') : 'transparent',
+                    borderWidth: 1, borderColor: !notif.read ? '#4F6AF020' : c.border,
+                  }}
                 >
-                  <View className="flex-row items-center gap-2">
-                    <View className="flex-1">
-                      <Text className={`text-xs font-bold ${darkMode ? 'text-white' : 'text-[#1A1A1A]'}`}>{notif.title}</Text>
-                      <Text className={`text-[11px] mt-0.5 ${darkMode ? 'text-[#888]' : 'text-[#666]'}`}>{notif.message}</Text>
-                      <Text className={`text-[10px] mt-0.5 ${darkMode ? 'text-[#888]' : 'text-[#666]'}`}>{notif.time}</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontSize: 12, fontWeight: '600', color: c.text }}>{notif.title}</Text>
+                      <Text style={{ fontSize: 11, color: c.textSec, marginTop: 2 }}>{notif.message}</Text>
+                      <Text style={{ fontSize: 10, color: c.textMuted, marginTop: 2 }}>{notif.time}</Text>
                     </View>
                     {!notif.read && (
-                      <View className="w-2 h-2 bg-gray-500 rounded-full" />
+                      <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: '#4F6AF0', marginTop: 4 }} />
                     )}
                   </View>
                 </TouchableOpacity>
@@ -481,74 +562,71 @@ const Dashboard: React.FC<DashboardProps> = ({ navigation }) => {
         </View>
       </Modal>
 
-      {/* Settings Modal */}
+      {/* ── Settings Modal ────────────────────────────────────────────────── */}
       <Modal visible={showSettings} transparent animationType="fade">
-        <View className="items-center justify-center flex-1 bg-black/70">
-          <View className={`rounded-2xl p-4 w-[85%] max-w-[320px] ${darkMode ? 'bg-[#1E1E1E]' : 'bg-white'}`}>
-            <View className="flex-row items-center justify-between mb-3">
-              <Text className={`text-lg font-bold ${darkMode ? 'text-white' : 'text-[#1A1A1A]'}`}>Settings</Text>
-              <TouchableOpacity onPress={() => setShowSettings(false)}>
-                <Feather name="x" size={22} color={darkMode ? '#888' : '#666'} />
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' }}>
+          <View style={{ backgroundColor: c.card, borderRadius: 18, padding: 16, width: '85%', maxWidth: 320 }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+              <Text style={{ fontSize: 17, fontWeight: '700', color: c.text }}>Settings</Text>
+              <TouchableOpacity onPress={() => setShowSettings(false)}
+                style={{ width: 28, height: 28, borderRadius: 7, backgroundColor: c.pillBg, justifyContent: 'center', alignItems: 'center' }}>
+                <Feather name="x" size={14} color={c.textSec} />
               </TouchableOpacity>
             </View>
-            
-            <View className={`border-b py-3 ${darkMode ? 'border-[#333]' : 'border-[#E0E0E0]'}`}>
-              <View className="flex-row items-center justify-between">
-                <View className="flex-row items-center gap-2.5">
-                  <Feather name="moon" size={18} color={darkMode ? '#888' : '#666'} />
-                  <Text className={`text-sm ${darkMode ? 'text-white' : 'text-[#1A1A1A]'}`}>Dark Mode</Text>
-                </View>
-                <Switch 
-                  value={darkMode} 
-                  onValueChange={setDashboardDarkMode} 
-                  trackColor={{ false: darkMode ? '#333' : '#E0E0E0', true: '#6B7280' }}
-                  thumbColor="#FFF"
-                />
+
+            {/* Dark Mode */}
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: c.border }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                <Feather name="moon" size={16} color={c.textSec} />
+                <Text style={{ fontSize: 14, color: c.text }}>Dark Mode</Text>
               </View>
+              <Switch
+                value={darkMode}
+                onValueChange={setDashboardDarkMode}
+                trackColor={{ false: '#E2E8F0', true: '#4F6AF0' }}
+                thumbColor="#FFF"
+              />
             </View>
 
-            <View className={`border-b py-3 ${darkMode ? 'border-[#333]' : 'border-[#E0E0E0]'}`}>
-              <View className="flex-row items-center justify-between">
-                <View className="flex-row items-center gap-2.5">
-                  <Feather name="bell" size={18} color={darkMode ? '#888' : '#666'} />
-                  <Text className={`text-sm ${darkMode ? 'text-white' : 'text-[#1A1A1A]'}`}>Push Notifications</Text>
-                </View>
-                <Switch 
-                  value={dashboardNotificationsEnabled} 
-                  onValueChange={setDashboardNotificationsEnabled} 
-                  trackColor={{ false: darkMode ? '#333' : '#E0E0E0', true: '#22C55E' }}
-                  thumbColor="#FFF"
-                />
+            {/* Notifications */}
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: c.border }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                <Feather name="bell" size={16} color={c.textSec} />
+                <Text style={{ fontSize: 14, color: c.text }}>Push Notifications</Text>
               </View>
+              <Switch
+                value={dashboardNotificationsEnabled}
+                onValueChange={setDashboardNotificationsEnabled}
+                trackColor={{ false: '#E2E8F0', true: '#059669' }}
+                thumbColor="#FFF"
+              />
             </View>
 
-            <View className={`border-b py-3 ${darkMode ? 'border-[#333]' : 'border-[#E0E0E0]'}`}>
-              <TouchableOpacity 
-                className="flex-row items-center justify-between"
+            {/* Stream Quality */}
+            <View style={{ paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: c.border }}>
+              <TouchableOpacity
+                style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}
                 onPress={() => setShowQualityOptions(!showQualityOptions)}
               >
-                <View className="flex-row items-center gap-2.5">
-                  <Feather name="cpu" size={18} color={darkMode ? '#888' : '#666'} />
-                  <Text className={`text-sm ${darkMode ? 'text-white' : 'text-[#1A1A1A]'}`}>Stream Quality</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                  <Feather name="cpu" size={16} color={c.textSec} />
+                  <Text style={{ fontSize: 14, color: c.text }}>Stream Quality</Text>
                 </View>
-                <View className="flex-row items-center gap-1">
-                  <Text className={`text-xs ${darkMode ? 'text-[#888]' : 'text-[#666]'}`}>{dashboardStreamQuality}</Text>
-                  <Feather name={showQualityOptions ? "chevron-up" : "chevron-down"} size={14} color={darkMode ? '#888' : '#666'} />
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                  <Text style={{ fontSize: 12, color: c.textMuted }}>{dashboardStreamQuality}</Text>
+                  <Feather name={showQualityOptions ? 'chevron-up' : 'chevron-down'} size={13} color={c.textMuted} />
                 </View>
               </TouchableOpacity>
               {showQualityOptions && (
-                <View className="mt-2 ml-7">
-                  {qualityOptions.map((option: string) => (
-                    <TouchableOpacity 
-                      key={option}
-                      onPress={() => {
-                        setDashboardStreamQuality(option);
-                        setShowQualityOptions(false);
-                      }}
-                      className="py-2"
+                <View style={{ marginTop: 8, paddingLeft: 26, gap: 2 }}>
+                  {qualityOptions.map((opt) => (
+                    <TouchableOpacity
+                      key={opt}
+                      onPress={() => { setDashboardStreamQuality(opt); setShowQualityOptions(false); }}
+                      style={{ paddingVertical: 8, paddingHorizontal: 10, borderRadius: 8, backgroundColor: opt === dashboardStreamQuality ? '#EEF2FF' : 'transparent' }}
                     >
-                      <Text className={`text-xs ${option === dashboardStreamQuality ? 'text-gray-500' : (darkMode ? 'text-[#888]' : 'text-[#666]')}`}>
-                        {option}
+                      <Text style={{ fontSize: 13, color: opt === dashboardStreamQuality ? '#4F6AF0' : c.textSec, fontWeight: opt === dashboardStreamQuality ? '600' : '400' }}>
+                        {opt}
                       </Text>
                     </TouchableOpacity>
                   ))}
@@ -556,49 +634,73 @@ const Dashboard: React.FC<DashboardProps> = ({ navigation }) => {
               )}
             </View>
 
-            <TouchableOpacity className="py-3" onPress={handleHelpSupport}>
-              <View className="flex-row items-center justify-between">
-                <View className="flex-row items-center gap-2.5">
-                  <Feather name="help-circle" size={18} color={darkMode ? '#888' : '#666'} />
-                  <Text className={`text-sm ${darkMode ? 'text-white' : 'text-[#1A1A1A]'}`}>Help & Support</Text>
-                </View>
-                <Feather name="chevron-right" size={14} color={darkMode ? '#888' : '#666'} />
+            {/* Help */}
+            <TouchableOpacity
+              style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 12 }}
+              onPress={handleHelpSupport}
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                <Feather name="help-circle" size={16} color={c.textSec} />
+                <Text style={{ fontSize: 14, color: c.text }}>Help & Support</Text>
               </View>
+              <Feather name="chevron-right" size={13} color={c.textMuted} />
             </TouchableOpacity>
           </View>
         </View>
       </Modal>
 
-      {/* Go Live Modal */}
+      {/* ── Go Live Modal ─────────────────────────────────────────────────── */}
       <Modal visible={showGoLiveModal && !isLive} transparent animationType="fade">
-        <View className="items-center justify-center flex-1 bg-black/70">
-          <View className={`rounded-2xl p-5 w-[85%] max-w-[320px] ${darkMode ? 'bg-[#1E1E1E]' : 'bg-white'}`}>
-            <Text className={`text-lg font-bold text-center mb-3 ${darkMode ? 'text-white' : 'text-[#1A1A1A]'}`}>Start Broadcasting</Text>
-            <Text className={`text-xs text-center mb-5 ${darkMode ? 'text-[#888]' : 'text-[#666]'}`}>Start your live broadcast and connect with your audience!</Text>
-            <View className="flex-row gap-3">
-              <TouchableOpacity onPress={() => setShowGoLiveModal(false)} className={`flex-1 py-2.5 rounded-xl border ${darkMode ? 'border-[#333]' : 'border-[#E0E0E0]'}`}>
-                <Text className={`text-center ${darkMode ? 'text-[#888]' : 'text-[#666]'}`}>Cancel</Text>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' }}>
+          <View style={{ backgroundColor: c.card, borderRadius: 18, padding: 20, width: '85%', maxWidth: 320 }}>
+            <View style={{ width: 52, height: 52, borderRadius: 26, backgroundColor: '#EEF2FF', justifyContent: 'center', alignItems: 'center', alignSelf: 'center', marginBottom: 12 }}>
+              <Feather name="radio" size={24} color="#4F6AF0" />
+            </View>
+            <Text style={{ fontSize: 17, fontWeight: '700', textAlign: 'center', color: c.text, marginBottom: 6 }}>Start Broadcasting</Text>
+            <Text style={{ fontSize: 13, textAlign: 'center', color: c.textMuted, marginBottom: 20 }}>
+              Start your live broadcast and connect with your audience!
+            </Text>
+            <View style={{ flexDirection: 'row', gap: 10 }}>
+              <TouchableOpacity
+                onPress={() => setShowGoLiveModal(false)}
+                style={{ flex: 1, paddingVertical: 12, borderRadius: 10, borderWidth: 1, borderColor: c.border, alignItems: 'center' }}
+              >
+                <Text style={{ fontSize: 14, color: c.textSec, fontWeight: '500' }}>Cancel</Text>
               </TouchableOpacity>
-              <TouchableOpacity onPress={handleGoLive} className="flex-1 py-2.5 rounded-xl bg-black">
-                <Text className="font-bold text-center text-white">Go Live</Text>
+              <TouchableOpacity
+                onPress={handleGoLive}
+                style={{ flex: 1, paddingVertical: 12, borderRadius: 10, backgroundColor: '#4F6AF0', alignItems: 'center' }}
+              >
+                <Text style={{ fontSize: 14, color: '#FFF', fontWeight: '700' }}>Go Live</Text>
               </TouchableOpacity>
             </View>
           </View>
         </View>
       </Modal>
 
-      {/* End Live Modal */}
+      {/* ── End Live Modal ────────────────────────────────────────────────── */}
       <Modal visible={showGoLiveModal && isLive} transparent animationType="fade">
-        <View className="items-center justify-center flex-1 bg-black/70">
-          <View className={`rounded-2xl p-5 w-[85%] max-w-[320px] ${darkMode ? 'bg-[#1E1E1E]' : 'bg-white'}`}>
-            <Text className={`text-lg font-bold text-center mb-3 ${darkMode ? 'text-white' : 'text-[#1A1A1A]'}`}>End Broadcast?</Text>
-            <Text className={`text-xs text-center mb-5 ${darkMode ? 'text-[#888]' : 'text-[#666]'}`}>Are you sure you want to end your live broadcast?</Text>
-            <View className="flex-row gap-3">
-              <TouchableOpacity onPress={() => setShowGoLiveModal(false)} className={`flex-1 py-2.5 rounded-xl border ${darkMode ? 'border-[#333]' : 'border-[#E0E0E0]'}`}>
-                <Text className={`text-center ${darkMode ? 'text-[#888]' : 'text-[#666]'}`}>Cancel</Text>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' }}>
+          <View style={{ backgroundColor: c.card, borderRadius: 18, padding: 20, width: '85%', maxWidth: 320 }}>
+            <View style={{ width: 52, height: 52, borderRadius: 26, backgroundColor: '#FEF2F2', justifyContent: 'center', alignItems: 'center', alignSelf: 'center', marginBottom: 12 }}>
+              <Feather name="square" size={22} color="#DC2626" />
+            </View>
+            <Text style={{ fontSize: 17, fontWeight: '700', textAlign: 'center', color: c.text, marginBottom: 6 }}>End Broadcast?</Text>
+            <Text style={{ fontSize: 13, textAlign: 'center', color: c.textMuted, marginBottom: 20 }}>
+              Are you sure you want to end your live broadcast?
+            </Text>
+            <View style={{ flexDirection: 'row', gap: 10 }}>
+              <TouchableOpacity
+                onPress={() => setShowGoLiveModal(false)}
+                style={{ flex: 1, paddingVertical: 12, borderRadius: 10, borderWidth: 1, borderColor: c.border, alignItems: 'center' }}
+              >
+                <Text style={{ fontSize: 14, color: c.textSec, fontWeight: '500' }}>Cancel</Text>
               </TouchableOpacity>
-              <TouchableOpacity onPress={handleGoLive} className="flex-1 py-2.5 rounded-xl bg-black">
-                <Text className="font-bold text-center text-white">End Live</Text>
+              <TouchableOpacity
+                onPress={handleGoLive}
+                style={{ flex: 1, paddingVertical: 12, borderRadius: 10, backgroundColor: '#DC2626', alignItems: 'center' }}
+              >
+                <Text style={{ fontSize: 14, color: '#FFF', fontWeight: '700' }}>End Live</Text>
               </TouchableOpacity>
             </View>
           </View>

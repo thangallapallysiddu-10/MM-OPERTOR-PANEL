@@ -1,7 +1,7 @@
-// hooks/useTimer.ts - Fixed for accurate timing
-
 import { useEffect, useRef } from 'react';
 import { useAppStore } from '../../../store/useAppStore';
+import { rjBackend } from '../services/rjBackend';
+import { syncTimerPauseToBackend } from '../services/rjApiSync';
 
 export const useTimer = (isLive: boolean) => {
   const { rjStudio, updateRjStudioState } = useAppStore();
@@ -10,41 +10,38 @@ export const useTimer = (isLive: boolean) => {
   const secondsRef = useRef<number>(0);
   
   const isPaused = rjStudio.isTimerPaused;
-  const setIsPaused = (value: boolean) => updateRjStudioState({ isTimerPaused: value });
+  const setIsPaused = (value: boolean) => {
+    updateRjStudioState({ isTimerPaused: value });
+    if (rjBackend.isEnabled()) {
+      void syncTimerPauseToBackend(value);
+    }
+  };
   
   const seconds = rjStudio.liveTimerSeconds;
-  
-  // Update ref when seconds changes
   secondsRef.current = seconds;
 
-  // Timer effect - runs every second
   useEffect(() => {
-    // Clear any existing interval first
     if (intervalRef.current) {
       clearInterval(intervalRef.current);
       intervalRef.current = null;
     }
-    
-    // Start new interval only if live and not paused
+
+    // Local timer runs regardless of backend to avoid 429 HTTP polling
+    // if (rjBackend.isEnabled()) return;
+
     if (isLive && !isPaused) {
       intervalRef.current = setInterval(() => {
-        // Use ref to get current value, then update store
         const newValue = secondsRef.current + 1;
         secondsRef.current = newValue;
         updateRjStudioState({ liveTimerSeconds: newValue });
       }, 1000);
     }
     
-    // Cleanup on unmount or when dependencies change
     return () => {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-        intervalRef.current = null;
-      }
+      if (intervalRef.current) clearInterval(intervalRef.current);
     };
   }, [isLive, isPaused]);
 
-  // Reset timer when live ends
   useEffect(() => {
     if (!isLive) {
       updateRjStudioState({ liveTimerSeconds: 0, isTimerPaused: false });
@@ -63,13 +60,9 @@ export const useTimer = (isLive: boolean) => {
     return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
   };
 
-  const setIsPausedWrapper = (value: boolean) => {
-    setIsPaused(value);
-  };
-
   return {
     isPaused,
-    setIsPaused: setIsPausedWrapper,
+    setIsPaused,
     seconds,
     formatTime,
   };

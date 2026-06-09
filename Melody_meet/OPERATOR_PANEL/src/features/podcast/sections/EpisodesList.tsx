@@ -91,7 +91,7 @@ export const EpisodesList: React.FC<EpisodesListProps> = ({
 
 const styles = StyleSheet.create({
   episodesCard: {
-    borderRadius: 12,
+    borderRadius: 14,
     borderWidth: 1,
     padding: 16,
   },
@@ -99,20 +99,21 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    marginBottom: 16,
-    paddingBottom: 8,
+    marginBottom: 14,
+    paddingBottom: 10,
     borderBottomWidth: 1,
   },
   sectionIndicator: {
-    width: 4,
-    height: 20,
+    width: 3,
+    height: 18,
     borderRadius: 2,
+    backgroundColor: '#4F6AF0',
   },
   sectionTitle: {
     fontSize: 11,
-    fontWeight: "500",
+    fontWeight: "600",
     textTransform: "uppercase",
-    letterSpacing: 0.5,
+    letterSpacing: 0.6,
   },
   episodesCount: {
     fontSize: 11,

@@ -107,12 +107,12 @@ export const EpisodeDetails: React.FC<EpisodeDetailsProps> = ({
           <Text style={[styles.uploadPlaceholder, { color: fileName ? colors.text : colors.textMuted }]}>
             {fileName ? fileName : "Tap to select audio file"}
           </Text>
-          {fileName && fileSize && <Text style={[styles.fileSizeText, { color: colors.textMuted }]}>{fileSize}</Text>}
+          {fileName && fileSize ? <Text style={[styles.fileSizeText, { color: colors.textMuted }]}>{fileSize}</Text> : null}
         </TouchableOpacity>
 
         {!fileName && <Text style={[styles.noFileText, { color: colors.textMuted }]}>Supported: MP3, WAV, M4A, AAC</Text>}
 
-        {fileName && (
+        {!!fileName && (
           <View style={styles.fileActions}>
             <TouchableOpacity
               onPress={onPickFile}
@@ -192,8 +192,8 @@ export const EpisodeDetails: React.FC<EpisodeDetailsProps> = ({
               style={[
                 styles.genreChip,
                 {
-                  borderColor: selected ? colors.text : colors.cardBorder,
-                  backgroundColor: selected ? colors.text : colors.surface,
+                  borderColor: selected ? '#4F6AF0' : colors.cardBorder,
+                  backgroundColor: selected ? '#4F6AF0' : colors.surface,
                 },
               ]}
             >
@@ -258,7 +258,7 @@ export const EpisodeDetails: React.FC<EpisodeDetailsProps> = ({
       </View>
 
       {/* File Status */}
-      {fileName && !uploading && (
+      {!!fileName && !uploading && (
         <View style={styles.fileStatus}>
           <Feather name="check-circle" size={14} color={colors.textSecondary} />
           <Text style={[styles.fileStatusText, { color: colors.textSecondary }]}>File ready: {fileName}</Text>
@@ -270,7 +270,7 @@ export const EpisodeDetails: React.FC<EpisodeDetailsProps> = ({
 
 const styles = StyleSheet.create({
   uploadCard: {
-    borderRadius: 12,
+    borderRadius: 14,
     borderWidth: 1,
     padding: 16,
     marginBottom: 16,
@@ -280,19 +280,20 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 8,
     marginBottom: 16,
-    paddingBottom: 8,
+    paddingBottom: 10,
     borderBottomWidth: 1,
   },
   sectionIndicator: {
-    width: 4,
-    height: 20,
+    width: 3,
+    height: 18,
     borderRadius: 2,
+    backgroundColor: '#4F6AF0',
   },
   sectionTitle: {
     fontSize: 11,
-    fontWeight: "500",
+    fontWeight: "600",
     textTransform: "uppercase",
-    letterSpacing: 0.5,
+    letterSpacing: 0.6,
   },
   uploadArea: {
     marginBottom: 16,
@@ -395,13 +396,13 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderRadius: 10,
     paddingHorizontal: 14,
-    paddingVertical: 12,
+    paddingVertical: 11,
     fontSize: 14,
-    marginBottom: 12,
+    marginBottom: 10,
   },
   numberRow: {
     flexDirection: "row",
-    gap: 12,
+    gap: 10,
   },
   numberInput: {
     flex: 1,
@@ -409,25 +410,25 @@ const styles = StyleSheet.create({
   genreSuggestions: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 8,
-    marginBottom: 12,
+    gap: 7,
+    marginBottom: 10,
   },
   genreChip: {
     borderWidth: 1,
-    borderRadius: 16,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
+    borderRadius: 20,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
   },
   genreChipText: {
     fontSize: 11,
     fontWeight: "600",
   },
   textArea: {
-    minHeight: 80,
+    minHeight: 76,
     textAlignVertical: "top",
   },
   scheduleContainer: {
-    marginBottom: 16,
+    marginBottom: 14,
   },
   scheduleLabel: {
     fontSize: 12,
@@ -455,19 +456,20 @@ const styles = StyleSheet.create({
     gap: 8,
     borderWidth: 1,
     borderRadius: 10,
-    paddingVertical: 12,
+    paddingVertical: 11,
   },
   scheduleButtonText: {
     fontSize: 13,
+    fontWeight: "500",
   },
   actionButtons: {
     flexDirection: "row",
-    gap: 12,
+    gap: 10,
     marginTop: 8,
   },
   publishButton: {
     flex: 1,
-    borderRadius: 30,
+    borderRadius: 12,
     overflow: "hidden",
   },
   buttonGradient: {
@@ -476,11 +478,12 @@ const styles = StyleSheet.create({
   },
   publishButtonText: {
     fontSize: 14,
-    fontWeight: "600",
+    fontWeight: "700",
+    color: "#FFFFFF",
   },
   draftButton: {
     flex: 1,
-    borderRadius: 30,
+    borderRadius: 12,
     paddingVertical: 12,
     alignItems: "center",
   },
@@ -489,14 +492,14 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
   disabledButton: {
-    opacity: 0.5,
+    opacity: 0.45,
   },
   fileStatus: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 6,
-    marginTop: 12,
+    marginTop: 10,
   },
   fileStatusText: {
     fontSize: 11,

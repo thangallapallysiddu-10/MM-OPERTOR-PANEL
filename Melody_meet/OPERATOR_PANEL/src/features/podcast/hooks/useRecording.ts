@@ -65,17 +65,18 @@ export const useRecording = () => {
 
   // Recording timer
   useEffect(() => {
-    if (isRecording) {
-      recordingTimerRef.current = setInterval(() => {
-        updatePodcastState({ recordingSeconds: recordingSeconds + 1 });
-      }, 1000);
-    } else {
+    if (!isRecording) {
       if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
+      return;
     }
+    recordingTimerRef.current = setInterval(() => {
+      const secs = useAppStore.getState().podcast.recordingSeconds || 0;
+      updatePodcastState({ recordingSeconds: secs + 1 });
+    }, 1000);
     return () => {
       if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
     };
-  }, [isRecording, recordingSeconds]);
+  }, [isRecording]);
 
   const selectMic = (micId: number) => {
     setActiveMic(micId);
@@ -128,8 +129,9 @@ export const useRecording = () => {
 
   const stopRecording = async () => {
     try {
-      const mins = Math.floor(recordingSeconds / 60);
-      const secs = recordingSeconds % 60;
+      const elapsed = useAppStore.getState().podcast.recordingSeconds || 0;
+      const mins = Math.floor(elapsed / 60);
+      const secs = elapsed % 60;
       const durationStr = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
       const recordingName = `recording_${new Date().toLocaleTimeString().replace(/:/g, '-')}.mp3`;
 
@@ -141,7 +143,7 @@ export const useRecording = () => {
           const formData = new FormData();
           formData.append('file', fileObj);
           formData.append('duration', durationStr);
-          formData.append('durationSeconds', recordingSeconds.toString());
+          formData.append('durationSeconds', elapsed.toString());
           
           const saved = await PodcastApi.uploadRecording(formData);
           if (saved?.id) backendId = saved.id;
@@ -220,8 +222,8 @@ export const useRecording = () => {
     // Then sync to backend (best-effort)
     try {
       await PodcastApi.deleteRecording(id);
-    } catch (_) {
-      // Already removed locally — no crash on API failure
+    } catch (err: any) {
+      console.error('DELETE RECORDING FAILED', err?.response?.status, err?.response?.data, err?.message);
     }
   };
 
@@ -229,35 +231,6 @@ export const useRecording = () => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
     return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
-  };
-
-  // Add guest mic
-  const addGuestMic = (guest: { id: string; name: string }) => {
-    const currentMics = useAppStore.getState().podcast.mics;
-    if (currentMics.some((mic: Mic) => mic.guestId === guest.id)) return;
-
-    const newMicId = 100 + currentMics.length;
-    const newMic: Mic = {
-      id: newMicId,
-      name: guest.name,
-      type: "GUEST",
-      active: false,
-      phantom: false,
-      gain: 50,
-      volume: 70,
-      level: 0,
-      muted: true,
-      icon: "👤",
-      isGuest: true,
-      guestId: guest.id,
-    };
-    updatePodcastState({ mics: [...currentMics, newMic] });
-  };
-
-  // Remove guest mic
-  const removeGuestMic = (guestId: string) => {
-    const updatedMics = mics.filter((mic: Mic) => mic.guestId !== guestId);
-    updatePodcastState({ mics: updatedMics });
   };
 
   return {
@@ -270,16 +243,11 @@ export const useRecording = () => {
     activeMic,
     selectMic,
     toggleMute,
-    setRecordings: (fn: any) => {
-      console.warn('setRecordings is deprecated, use addRecording/removeRecording');
-    },
     startRecording,
     stopRecording,
     useRecording: useRecordingFn,
     deleteRecording,
     setShowAfterRecordingOptions: (value: boolean) => updatePodcastState({ showAfterRecordingOptions: value }),
     formatRecordingTime,
-    addGuestMic,
-    removeGuestMic,
   };
 };

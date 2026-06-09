@@ -12,7 +12,6 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Feather } from '@expo/vector-icons';
-import { io as socketIo } from 'socket.io-client';
 import { useOperator } from '../../context/OperatorContext';
 import { useAuth } from '../../context/AuthContext';
 import * as DocumentPicker from 'expo-document-picker';
@@ -27,29 +26,30 @@ import SettingsModal from '../../components/modals/SettingsModal';
 // Import hooks
 import { useRecording } from './hooks/useRecording';
 import { useLiveStream } from './hooks/useLiveStream';
+import { usePodcastBootstrap } from './hooks/usePodcastBootstrap';
+import { usePodcastSocket } from './hooks/usePodcastSocket';
+import { usePeerConnections } from './hooks/usePeerConnections';
 import { PodcastApi, getFileUrl } from '../../services/api/operatorApi';
 
 
 // Import sections
-import { RecordingStudio } from './sections/RecordingStudio';
 import { EpisodeDetails } from './sections/EpisodeDetails';
 import { EpisodesList } from './sections/EpisodesList';
-import { GuestPanel } from './sections/GuestPanel';
 import { MusicPlayer } from './sections/MusicPlayer';
+import { PodcastLiveChat } from './sections/PodcastLiveChat';
+import EpisodeHub from './EpisodeHub';
+import { PodcastAudioDeck } from './sections/PodcastAudioDeck';
+import { PodcastAnalytics } from './sections/PodcastAnalytics';
 
 // Import modals
 import { LiveSetupModal } from './modals/LiveSetupModal';
 import { TrimModal } from './modals/TrimModal';
 
 // Import types
-import { Podcast, Recording, TrimRange } from './types';
+import { Podcast, Recording } from './types';
 
 const { width } = Dimensions.get('window');
 const isMobile = width < 768;
-const API_BASE =
-  (globalThis as any)?.process?.env?.EXPO_PUBLIC_API_URL ||
-  (Platform.OS === 'android' ? 'http://10.0.2.2:5000/api' : 'http://localhost:5000/api');
-const SOCKET_SERVER_URL = API_BASE.replace(/\/api$/, '');
 
 // Notification type
 interface NotificationItem {
@@ -61,39 +61,39 @@ interface NotificationItem {
   type: 'live' | 'song' | 'system' | 'report' | 'ban';
 }
 
-// Theme colors - Black/White/Gray only
+// ─── Theme colors aligned with MelodyMeet design system ──────────────────────
 const lightTheme = {
-  background: "#F5F5F5",
+  background: "#F8FAFC",
   surface: "#FFFFFF",
   card: "#FFFFFF",
-  cardBorder: "#E0E0E0",
-  text: "#000000",
-  textSecondary: "#666666",
-  textMuted: "#999999",
-  success: "#000000",
-  warning: "#666666",
-  accent: "#333333",
+  cardBorder: "#E2E8F0",
+  text: "#0F172A",
+  textSecondary: "#475569",
+  textMuted: "#94A3B8",
+  success: "#059669",
+  warning: "#D97706",
+  accent: "#4F6AF0",
 };
 
 const darkTheme = {
-  background: "#121212",
-  surface: "#1E1E1E",
-  card: "#1E1E1E",
-  cardBorder: "#333333",
-  text: "#FFFFFF",
-  textSecondary: "#CCCCCC",
-  textMuted: "#888888",
-  success: "#FFFFFF",
-  warning: "#CCCCCC",
-  accent: "#999999",
+  background: "#0F172A",
+  surface: "#1E293B",
+  card: "#1E293B",
+  cardBorder: "#334155",
+  text: "#F1F5F9",
+  textSecondary: "#94A3B8",
+  textMuted: "#64748B",
+  success: "#10B981",
+  warning: "#F59E0B",
+  accent: "#6B8EFF",
 };
 
 const lightGradients = {
-  primary: ["#000000", "#333333"] as const,
+  primary: ["#4F6AF0", "#6B8EFF"] as const,
 };
 
 const darkGradients = {
-  primary: ["#FFFFFF", "#CCCCCC"] as const,
+  primary: ["#4F6AF0", "#6B8EFF"] as const,
 };
 
 export default function PodcastUpload({ navigation }: any) {
@@ -137,20 +137,11 @@ export default function PodcastUpload({ navigation }: any) {
     isRecording,
     recordingSeconds,
     recordings,
-    setRecordings,
-    lastRecording,
-    showAfterRecordingOptions,
     mics,
-    activeMic,
-    selectMic,
     toggleMute,
     startRecording,
     stopRecording,
-    useRecording: useRecordingFn,
     deleteRecording,
-    setShowAfterRecordingOptions,
-    addGuestMic,
-    removeGuestMic,
   } = recordingHook;
 
   // Live stream hook
@@ -178,6 +169,19 @@ export default function PodcastUpload({ navigation }: any) {
     setShowLiveSetup,
     setLiveSetupStep,
   } = liveStreamHook;
+
+  usePodcastBootstrap();
+
+  // Phase 3 — WebRTC peer connections (host ↔ guests).
+  // Manages one RTCPeerConnection per connected guest slot.
+  // Reads pendingWebRtcSignal from store (set by usePodcastSocket).
+  // hostStream is the operator's mic MediaStream from useLiveStream.
+  // On mobile or when audio is unavailable, hostStream is null — hook is a no-op.
+  const { applyVolume: peerApplyVolume, applyMute: peerApplyMute, closePeer } = usePeerConnections({
+    isLive,
+    roomLink,
+    hostStream: (liveStreamHook as any).mediaStream ?? null,
+  });
 
   // ===== EPISODE FORM STATE (from store) =====
   const title = podcast.episodeTitle;
@@ -208,9 +212,6 @@ export default function PodcastUpload({ navigation }: any) {
   const setScheduleDisplay = (value: string) => updatePodcastState({ episodeScheduleDisplay: value });
   
   const podcasts = podcast.podcastEpisodes;
-  const setPodcasts = (fn: any) => {
-    // Handle if needed - use addPodcastEpisode/removePodcastEpisode instead
-  };
 
   // Local UI state (not persisted)
   const [uploading, setUploading] = useState(false);
@@ -218,26 +219,14 @@ export default function PodcastUpload({ navigation }: any) {
   const [selectedFile, setSelectedFile] = useState<any>(null);
   const [selectedCoverFile, setSelectedCoverFile] = useState<any>(null);
   
+  // Episode Hub navigation
+  const [showEpisodeHub, setShowEpisodeHub] = useState(false);
+  
   // Episode playback state
   const [playingEpisodeId, setPlayingEpisodeId] = useState<number | string | null>(null);
   const episodeAudioRef = useRef<any>(null);
   const [playingRecordingId, setPlayingRecordingId] = useState<number | null>(null);
   const recordingAudioRef = useRef<any>(null);
-  const podcastSocketRef = useRef<any>(null);
-
-  // ===== GUEST STATE (from store) =====
-  const guestRequests = podcast.guestRequests;
-  const setGuestRequests = (fn: any) => {
-    // Use store actions instead
-  };
-  const approvedGuests = podcast.approvedGuests;
-  const setApprovedGuests = (fn: any) => {
-    // Use store actions instead
-  };
-  const showGuestPanel = podcast.showGuestPanel;
-  const setShowGuestPanel = (value: boolean) => updatePodcastState({ showGuestPanel: value });
-  const showMusicPlayer = podcast.showMusicPlayer;
-  const setShowMusicPlayer = (value: boolean) => updatePodcastState({ showMusicPlayer: value });
 
   // ===== TRIM STATE (from store) =====
   const trimModalVisible = podcast.trimModalVisible;
@@ -272,21 +261,13 @@ export default function PodcastUpload({ navigation }: any) {
   const recordingToTrim = podcast.currentRecordingForTrim;
   const setRecordingToTrim = (value: Recording | null) => updatePodcastState({ currentRecordingForTrim: value });
 
-  // ===== MUSIC PLAYER STATE (from store) =====
-  const currentMusic = podcast.currentMusic;
-  const setCurrentMusic = (value: any) => updatePodcastState({ currentMusic: value });
-  const isMusicPlaying = podcast.isMusicPlaying;
-  const setIsMusicPlaying = (value: boolean) => updatePodcastState({ isMusicPlaying: value });
-  const musicLink = podcast.musicLink;
-  const setMusicLink = (value: string) => updatePodcastState({ musicLink: value });
-  const [loadingMusic, setLoadingMusic] = useState(false);
-
-  // ===== SETTINGS STATE (from store) =====
-  const notificationsEnabled = true; 
+  // ===== SETTINGS STATE =====
   const [streamQuality, setStreamQuality] = useState('Auto');
-  const setNotificationsEnabled = (value: boolean) => {};
-  const autoSave = true;
-  const setAutoSave = (value: boolean) => {};
+  // notificationsEnabled — hardcoded true; wired to SettingsModal prop.
+  // Not a useState because no actual notification toggle logic exists yet.
+  // TODO (review): wire to a real preference or remove if SettingsModal drops the prop.
+  const notificationsEnabled = true;
+  const setNotificationsEnabled = (_: boolean) => {};
 
   // ===== NOTIFICATIONS STATE =====
   const [showNotifications, setShowNotifications] = useState(false);
@@ -299,6 +280,35 @@ export default function PodcastUpload({ navigation }: any) {
     { id: '4', title: 'Episode Published', message: 'Your podcast "Morning Beats" is live', time: '1 hour ago', read: false, type: 'system' },
   ]);
   const [unreadCount, setUnreadCount] = useState(notificationsList.filter(n => !n.read).length);
+
+  const addNotification = (notifTitle: string, message: string, type: NotificationItem['type']) => {
+    const newNotification: NotificationItem = {
+      id: Date.now().toString(),
+      title: notifTitle,
+      message,
+      time: 'Just now',
+      read: false,
+      type,
+    };
+    setNotificationsList((prev) => [newNotification, ...prev]);
+    addDashboardNotification({
+      title: notifTitle,
+      message,
+      time: 'Just now',
+      read: false,
+    });
+  };
+
+  const {
+    liveChatMessages,
+    liveChatInput,
+    setLiveChatInput,
+    sendHostChatMessage,
+  } = usePodcastSocket({
+    isLive,
+    roomLink,
+    userName,
+  });
 
   // ===== CALENDAR STATE =====
   const showCalendar = podcast.showCalendar;
@@ -314,61 +324,6 @@ export default function PodcastUpload({ navigation }: any) {
   
   const hours = Array.from({ length: 24 }, (_, i) => i.toString().padStart(2, '0'));
   const minutes = Array.from({ length: 60 }, (_, i) => i.toString().padStart(2, '0'));
-
-  // Load episodes and mics from backend on mount
-  useEffect(() => {
-    PodcastApi.getAll()
-      .then((eps) => {
-        if (eps && eps.length > 0) {
-          // Merge backend episodes into local store (backend is source of truth)
-          eps.forEach((ep: any) => {
-            const local = {
-              id: ep.id,
-              title: ep.title,
-              description: ep.description || '',
-              genre: ep.genre || '',
-              seasonNumber: ep.seasonNumber ?? null,
-              episodeNumber: ep.episodeNumber ?? null,
-              coverArt: ep.coverArt || null,
-              fileName: ep.fileName || '',
-              fileSize: ep.fileSize || '',
-              schedule: ep.scheduleDate || 'Not scheduled',
-              status: ep.status,
-              date: ep.date || new Date(ep.createdAt).toLocaleDateString(),
-            };
-            // Only add if not already in store (avoid duplicates on hot reload)
-            const exists = podcast.podcastEpisodes.find((e: any) => e.id === local.id);
-            if (!exists) addPodcastEpisode(local);
-          });
-        }
-      })
-      .catch(() => { /* offline — use local store */ });
-
-    PodcastApi.getMics()
-      .then((backendMics) => {
-        if (backendMics && backendMics.length > 0) {
-          const { setMics } = useAppStore.getState();
-          setMics(backendMics);
-        }
-      })
-      .catch(() => { /* offline - use local mics */ });
-
-    PodcastApi.getRecordings()
-      .then((backendRecordings) => {
-        if (backendRecordings) {
-          const { setRecordings } = useAppStore.getState();
-          const mapped = backendRecordings.map((r: any) => ({
-            id: r.id,
-            name: r.name,
-            duration: r.duration,
-            size: r.size || 'Unknown',
-            uri: r.fileUrl,
-          }));
-          setRecordings(mapped);
-        }
-      })
-      .catch(() => { /* offline - ignore */ });
-  }, []);
 
   // Sync dark mode with store
   useEffect(() => {
@@ -407,124 +362,6 @@ export default function PodcastUpload({ navigation }: any) {
   }
 }, [trimRanges, originalDurationSecs]);
 
-  useEffect(() => {
-    if (!isLive || !roomLink) {
-      podcastSocketRef.current?.disconnect();
-      podcastSocketRef.current = null;
-      updatePodcastState({ guestRequests: [], approvedGuests: [] });
-      return;
-    }
-
-    const roomIdMatch = roomLink.match(/roomId=([A-Z0-9]+)/i);
-    const roomId = roomIdMatch ? roomIdMatch[1] : null;
-    if (!roomId) return;
-
-    const syncGuests = (guests: any[]) => {
-      updatePodcastState({
-        guestRequests: guests
-          .filter((guest) => guest.status === 'pending')
-          .map((guest) => ({
-            id: String(guest.id),
-            name: guest.name,
-            device: guest.device || 'Unknown Device',
-            status: 'pending' as const,
-          })),
-        approvedGuests: guests
-          .filter((guest) => guest.status === 'approved')
-          .map((guest) => ({
-            id: String(guest.id),
-            name: guest.name,
-            device: guest.device || 'Unknown Device',
-            status: 'approved' as const,
-          })),
-      });
-    };
-
-    const upsertGuest = (guest: any) => {
-      const state = useAppStore.getState().podcast;
-      const normalizedGuest = {
-        id: String(guest.id),
-        name: guest.name,
-        device: guest.device || 'Unknown Device',
-        status: guest.status,
-      };
-
-      updatePodcastState({
-        guestRequests:
-          guest.status === 'pending'
-            ? [normalizedGuest, ...state.guestRequests.filter((item: any) => item.id !== normalizedGuest.id)]
-            : state.guestRequests.filter((item: any) => item.id !== normalizedGuest.id),
-        approvedGuests:
-          guest.status === 'approved'
-            ? [normalizedGuest, ...state.approvedGuests.filter((item: any) => item.id !== normalizedGuest.id)]
-            : state.approvedGuests.filter((item: any) => item.id !== normalizedGuest.id),
-      });
-    };
-
-    const socket = socketIo(`${SOCKET_SERVER_URL}/podcast`, {
-      transports: ['websocket'],
-      reconnection: true,
-      reconnectionAttempts: 10,
-      reconnectionDelay: 1000,
-    });
-
-    podcastSocketRef.current = socket;
-    socket.on('connect', () => socket.emit('host_join', { roomId }));
-    socket.on('room_snapshot', (snapshot: any) => {
-      syncGuests(snapshot.guests || []);
-      updatePodcastState({ liveViewers: snapshot.viewerCount || 0 });
-    });
-    socket.on('guest_request', (guest: any) => {
-      upsertGuest(guest);
-      addNotification('Guest Request', `${guest.name} wants to join as a guest`, 'system');
-    });
-    socket.on('guest_update', upsertGuest);
-    socket.on('viewer_count', ({ viewerCount }: any) => {
-      updatePodcastState({ liveViewers: Number(viewerCount || 0) });
-    });
-    socket.on('live_ended', () => {
-      updatePodcastState({
-        isLive: false,
-        liveSeconds: 0,
-        liveViewers: 0,
-        guestRequests: [],
-        approvedGuests: [],
-      });
-    });
-
-    const guestPoll = setInterval(async () => {
-      try {
-        syncGuests(await PodcastApi.getGuests(roomId));
-      } catch (_) {}
-    }, 10000);
-
-    return () => {
-      clearInterval(guestPoll);
-      socket.disconnect();
-      if (podcastSocketRef.current === socket) podcastSocketRef.current = null;
-    };
-  }, [isLive, roomLink]);
-  // Add notification helper
-  const addNotification = (title: string, message: string, type: NotificationItem['type']) => {
-    const newNotification: NotificationItem = {
-      id: Date.now().toString(),
-      title,
-      message,
-      time: 'Just now',
-      read: false,
-      type,
-    };
-    setNotificationsList(prev => [newNotification, ...prev]);
-    
-    // Also add to dashboard notifications if needed
-    addDashboardNotification({
-      title,
-      message,
-      time: 'Just now',
-      read: false,
-    });
-  };
-
   // Notification handlers
   const markAsRead = (id: string) => {
     setNotificationsList(prev => prev.map(n => n.id === id ? { ...n, read: true } : n));
@@ -549,6 +386,9 @@ export default function PodcastUpload({ navigation }: any) {
     Alert.alert('Help & Support', 'Contact: support@melodymeet.com\n\nVersion: 1.0.0');
   };
 
+  // handleLogout — REVIEW REQUIRED
+  // Defined here but PodcastProfileModal does not currently expose an onLogout prop.
+  // Keep until profile modal is updated to include a logout button, or remove if confirmed unused.
   const handleLogout = async () => {
     Alert.alert(
       'Logout',
@@ -1061,7 +901,7 @@ export default function PodcastUpload({ navigation }: any) {
   };
 
 const openTrimModal = (recording: Recording) => {
-  console.log("Opening trim modal for:", recording.name);let durationSeconds = 0;
+  let durationSeconds = 0;
   const parts = recording.duration.split(':');
   
   if (parts.length === 2) {
@@ -1155,110 +995,6 @@ const openTrimModal = (recording: Recording) => {
   }, 1500);
 };
 
-  // YouTube music extraction
-  const extractYouTubeMusic = async () => {
-    if (!musicLink.trim()) {
-      Alert.alert("Error", "Please paste a YouTube link");
-      return;
-    }
-    
-    setLoadingMusic(true);
-    
-    setTimeout(() => {
-      let videoId = '';
-      const patterns = [
-        /(?:youtube\.com\/watch\?v=)([^&]+)/,
-        /(?:youtu\.be\/)([^?]+)/,
-        /(?:youtube\.com\/embed\/)([^?]+)/
-      ];
-      for (const pattern of patterns) {
-        const match = musicLink.match(pattern);
-        if (match) {
-          videoId = match[1];
-          break;
-        }
-      }
-      
-      if (videoId) {
-        setCurrentMusic({
-          id: videoId,
-          title: `YouTube Track`,
-          artist: "YouTube",
-          thumbnail: `https://img.youtube.com/vi/${videoId}/default.jpg`,
-          url: musicLink,
-          videoId: videoId,
-        });
-        addNotification('Music Added', 'YouTube track added to player', 'song');
-        Alert.alert("Success", "Music loaded! Click play to start.");
-      } else {
-        Alert.alert("Error", "Could not extract video ID. Please check the link.");
-      }
-      setLoadingMusic(false);
-    }, 1500);
-  };
-
-  const playMusic = () => {
-    if (currentMusic) {
-      setIsMusicPlaying(true);
-      addNotification('Music Playing', `Now playing: ${currentMusic.title}`, 'song');
-    }
-  };
-
-  const pauseMusic = () => {
-    setIsMusicPlaying(false);
-  };
-
-  // Guest management functions — optimistic UI + backend sync
-  const approveGuest = async (id: string) => {
-    const request = guestRequests.find(r => r.id === id);
-    if (!request) return;
-    // Optimistic update
-    updatePodcastState({
-      approvedGuests: [...approvedGuests, { ...request, status: 'approved' }],
-      guestRequests: guestRequests.filter(r => r.id !== id),
-    });
-    addGuestMic({ id: request.id, name: request.name });
-    addNotification('Guest Approved', `${request.name} can now speak`, 'system');
-    // Backend sync
-    try {
-      await PodcastApi.respondToGuest(request.id, 'approve');
-    } catch (_) { /* offline — local state already updated */ }
-  };
-
-  const denyGuest = async (id: string) => {
-    const request = guestRequests.find(r => r.id === id);
-    if (!request) return;
-    // Optimistic update
-    updatePodcastState({
-      guestRequests: guestRequests.filter(r => r.id !== id),
-    });
-    addNotification('Guest Denied', `${request.name} request denied`, 'system');
-    // Backend sync
-    try {
-      await PodcastApi.respondToGuest(request.id, 'deny');
-    } catch (_) { /* offline — local state already updated */ }
-  };
-
-  const removeGuest = async (id: string) => {
-    const guest = approvedGuests.find(g => g.id === id);
-    if (!guest) return;
-    // Optimistic update
-    updatePodcastState({
-      approvedGuests: approvedGuests.filter(g => g.id !== id),
-    });
-    removeGuestMic(id);
-    addNotification('Guest Removed', `${guest.name} removed from session`, 'system');
-    // Backend sync
-    try {
-      await PodcastApi.removeGuest(guest.id);
-    } catch (_) { /* offline — local state already updated */ }
-  };
-
-  const toggleGuestMic = (guestId: string) => {
-    const guestMic = useAppStore.getState().podcast.mics.find((mic: any) => mic.guestId === guestId);
-    if (guestMic) toggleMute(guestMic.id);
-  };
-
   const handleCopyLink = () => {
     Alert.alert("Success", "Link copied to clipboard!");
     addNotification('Link Copied', 'Room link copied to clipboard', 'system');
@@ -1341,6 +1077,12 @@ const openTrimModal = (recording: Recording) => {
 
   return (
     <View className="flex-1" style={{ backgroundColor: colors.background, paddingTop: Platform.OS === 'ios' ? 50 : 40 }}>
+      {/* ── Episode Hub overlay ────────────────────────────── */}
+      {showEpisodeHub && (
+        <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 200 }}>
+          <EpisodeHub onBack={() => setShowEpisodeHub(false)} />
+        </View>
+      )}
       <ScrollView 
         className="px-4" 
         showsVerticalScrollIndicator={false}
@@ -1348,9 +1090,9 @@ const openTrimModal = (recording: Recording) => {
           paddingBottom: Platform.OS === 'web' ? 40 : 120,
         }}
       >
-        {/* Header */}
+        {/* ── Header ─────────────────────────────────────────── */}
         <View className="flex-row items-center justify-between mb-2">
-          <Text className="text-2xl font-semibold" style={{ color: colors.text }}>Podcast studio</Text>
+          <Text className="text-2xl font-semibold" style={{ color: colors.text }}>Podcast Studio</Text>
           <View className="flex-row items-center gap-3">
             <TouchableOpacity onPress={() => setShowSettings(true)} className="p-2">
               <Feather name="settings" size={22} color={colors.text} />
@@ -1368,133 +1110,185 @@ const openTrimModal = (recording: Recording) => {
             </TouchableOpacity>
           </View>
         </View>
-        <View className="w-16 h-[2px] mt-2 rounded-sm" style={{ backgroundColor: colors.text }} />
-        
+        <View className="w-16 h-[2px] mt-2 rounded-sm mb-4" style={{ backgroundColor: colors.text }} />
+
+        {/* ── Live Banner ─────────────────────────────────────── */}
         {isLive && (
-          <View className="flex-row flex-wrap items-center self-start gap-3 px-4 py-3 mt-4 rounded-full" style={{ backgroundColor: colors.text }}>
+          <View className="flex-row flex-wrap items-center self-start gap-3 px-4 py-3 mb-4 rounded-full" style={{ backgroundColor: colors.text }}>
             <View className="w-3 h-3 rounded-full" style={{ backgroundColor: colors.background }} />
             <Text className="text-[15px] font-bold" style={{ color: colors.background }}>LIVE</Text>
             <Text className="text-[15px] font-mono font-semibold" style={{ color: colors.background }}>{formatLiveDuration(liveSeconds)}</Text>
             <Text className="text-[14px] font-semibold" style={{ color: colors.background }}>Viewers {liveViewers}</Text>
-            
             <TouchableOpacity onPress={shareLiveLink} className="px-2 py-1 rounded-full" style={{ backgroundColor: `${colors.background}30` }}>
               <Feather name="share-2" size={15} color={colors.background} />
             </TouchableOpacity>
-            
           </View>
         )}
-        
-        {/* Two Column Layout */}
-        <View className={`${isMobile ? 'flex-col' : 'flex-row gap-4'} mb-6`}>
-          <View className={`${isMobile ? 'w-full' : 'flex-1'} gap-4`}>
-            <RecordingStudio
+
+        {/* ══════════════════════════════════════════════════════
+            SECTION 1 — PODCAST AUDIO DECK (always visible)
+            HOST + MIC 2–5 in one row · compact control bar
+        ══════════════════════════════════════════════════════ */}
+        <View style={{ backgroundColor: colors.card, borderRadius: 14, borderWidth: 1, borderColor: colors.cardBorder, marginBottom: 12, overflow: 'hidden' }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 14, paddingTop: 13, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: colors.cardBorder }}>
+            <View style={{ width: 3, height: 18, borderRadius: 2, backgroundColor: '#4F6AF0' }} />
+            <Feather name="mic" size={14} color={colors.textSecondary} />
+            <Text style={{ fontSize: 12, fontWeight: '700', letterSpacing: 0.5, textTransform: 'uppercase', color: colors.text }}>
+              Podcast Audio Deck
+            </Text>
+            {isLive && (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 7, paddingVertical: 3, borderRadius: 7, backgroundColor: '#ECFDF5', borderWidth: 1, borderColor: '#A7F3D0' }}>
+                <View style={{ width: 5, height: 5, borderRadius: 3, backgroundColor: '#059669' }} />
+                <Text style={{ fontSize: 9, fontWeight: '700', color: '#059669' }}>LIVE</Text>
+              </View>
+            )}
+          </View>
+          <View style={{ padding: 14 }}>
+            <PodcastAudioDeck
               mics={mics}
-              activeMic={activeMic}
+              guestSlots={podcast.guestSlots}
+              roomLink={roomLink}
               isRecording={isRecording}
               recordingSeconds={recordingSeconds}
-              showAfterRecordingOptions={showAfterRecordingOptions}
-              lastRecording={lastRecording}
-              recordings={recordings}
+              liveViewers={liveViewers}
               isLive={isLive}
-              onSelectMic={selectMic}
               onToggleMute={toggleMute}
               onStartRecording={startRecording}
-               onTrimRecording={(recording) => openTrimModal(recording)}
               onStopRecording={stopRecording}
-              onPlayRecording={handlePlayRecording}
-              playingRecordingId={playingRecordingId}
-              onUseRecording={(recording) => {
-                setFileName(recording.name);
-                setFileSize(recording.size);
-                setSelectedFile({ 
-                  name: recording.name, 
-                  size: recording.size, 
-                  uri: recording.uri 
-                });
-                if (!title) {
-                  let cleanTitle = recording.name.replace('.mp3', '').replace('_trimmed', '').replace('recording_', '');
-                  setTitle(cleanTitle);
-                }
-                setShowAfterRecordingOptions(false);
-                addNotification('Recording Used', `"${recording.name}" selected for episode`, 'system');
-              }}
-              onDeleteRecording={deleteRecording}
               onStartLive={startLiveSetup}
               onEndLive={stopLiveStream}
               colors={colors}
               gradients={gradients}
+              onPeerMute={peerApplyMute}
+              onPeerVolume={peerApplyVolume}
+              onPeerRemove={closePeer}
             />
+          </View>
+          {isLive && (
+            <View style={{ paddingHorizontal: 14, paddingBottom: 14 }}>
+              <PodcastAnalytics
+                isLive={isLive}
+                liveSeconds={liveSeconds}
+                liveViewers={liveViewers}
+                guestSlots={podcast.guestSlots}
+                hostMicMuted={podcast.mics.find(m => m.id === 1)?.muted ?? true}
+                colors={colors}
+              />
+            </View>
+          )}
+        </View>
 
-            <GuestPanel
-              roomLink={roomLink}
-              guestRequests={guestRequests}
-              approvedGuests={approvedGuests}
-              liveViewers={liveViewers}
+        {/* ══════════════════════════════════════════════════════
+            ROW: GREEN ROOM CHAT
+        ══════════════════════════════════════════════════════ */}
+        <View style={{ flexDirection: isMobile ? 'column' : 'row', gap: 12, marginBottom: 12 }}>
+
+          {/* GREEN ROOM CHAT — full width */}
+          <View style={{ flex: 1, backgroundColor: colors.card, borderRadius: 14, borderWidth: 1, borderColor: colors.cardBorder, overflow: 'hidden' }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 14, paddingTop: 13, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: colors.cardBorder }}>
+              <View style={{ width: 3, height: 18, borderRadius: 2, backgroundColor: '#8B5CF6' }} />
+              <Feather name="message-circle" size={14} color={colors.textSecondary} />
+              <Text style={{ fontSize: 12, fontWeight: '700', letterSpacing: 0.5, textTransform: 'uppercase', color: colors.text }}>
+                Green Room Chat
+              </Text>
+            </View>
+            <PodcastLiveChat
               isLive={isLive}
-              showGuestPanel={showGuestPanel}
-              onTogglePanel={() => setShowGuestPanel(!showGuestPanel)}
-              onCopyLink={handleCopyLink}
-              onShareLink={shareLiveLink}
-              onApproveGuest={approveGuest}
-              onDenyGuest={denyGuest}
-              onRemoveGuest={removeGuest}
-              onToggleGuestMic={toggleGuestMic}
+              messages={liveChatMessages}
+              value={liveChatInput}
+              onChangeText={setLiveChatInput}
+              onSend={sendHostChatMessage}
               colors={colors}
             />
-<MusicPlayer
-  showMusicPlayer={showMusicPlayer}
-  onTogglePlayer={() => setShowMusicPlayer(!showMusicPlayer)}
-  colors={colors}
-/>
           </View>
 
-          {/* RIGHT COLUMN */}
-          <View className={`${isMobile ? 'w-full' : 'flex-1'} gap-4`}>
-            <EpisodeDetails
-              title={title}
-              description={description}
-              genre={genre}
-              seasonNumber={seasonNumber}
-              episodeNumber={episodeNumber}
-              coverArt={coverArt}
-              fileName={fileName}
-              fileSize={fileSize}
-              uploading={uploading}
-              progress={progress}
-              scheduleDisplay={scheduleDisplay}
-              onTitleChange={setTitle}
-              onDescriptionChange={setDescription}
-              onGenreChange={setGenre}
-              onSeasonNumberChange={setSeasonNumber}
-              onEpisodeNumberChange={setEpisodeNumber}
-              onPickCoverArt={pickCoverArt}
-              onResetCoverArt={resetCoverArt}
-              onPickFile={pickAudioFile}
-              onResetFile={resetFileSelection}
-              onOpenCalendar={() => setShowCalendar(true)}
-              onClearSchedule={clearSchedule}
-              onPublish={() => saveEpisode(scheduleDisplay ? "Scheduled" : "Published")}
-              onSaveDraft={() => saveEpisode("Draft")}
-              colors={colors}
-              gradients={gradients}
-            />
+        </View>{/* end Green Room Chat row */}
 
-            <EpisodesList
-              podcasts={podcasts}
-              onDeletePodcast={async (id: number) => {
-                removePodcastEpisode(id);
-                try {
-                  await PodcastApi.delete(id);
-                } catch (_) {}
-              }}
-              onPlayEpisode={handlePlayEpisode}
+        {/* ══════════════════════════════════════════════════════
+            ROW: SECTION 4 — SOUND BED  |  SECTION 5 — EPISODE HUB CARD
+            Both always visible. Two columns on desktop, stacked on mobile.
+        ══════════════════════════════════════════════════════ */}
+        <View style={{ flexDirection: isMobile ? 'column' : 'row', gap: 12, marginBottom: 12 }}>
+
+          {/* SECTION 4 — PODCAST SOUND BED */}
+          <View style={{ flex: 1, backgroundColor: colors.card, borderRadius: 14, borderWidth: 1, borderColor: colors.cardBorder, overflow: 'hidden' }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 14, paddingTop: 13, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: colors.cardBorder }}>
+              <View style={{ width: 3, height: 18, borderRadius: 2, backgroundColor: '#F59E0B' }} />
+              <Feather name="music" size={14} color={colors.textSecondary} />
+              <Text style={{ fontSize: 12, fontWeight: '700', letterSpacing: 0.5, textTransform: 'uppercase', color: colors.text }}>
+                Podcast Sound Bed
+              </Text>
+              {podcast.isMusicPlaying && (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 7, paddingVertical: 3, borderRadius: 7, backgroundColor: '#FEF3C7', borderWidth: 1, borderColor: '#FDE68A' }}>
+                  <View style={{ width: 5, height: 5, borderRadius: 3, backgroundColor: '#D97706' }} />
+                  <Text style={{ fontSize: 9, fontWeight: '700', color: '#D97706' }}>PLAYING</Text>
+                </View>
+              )}
+            </View>
+            <MusicPlayer
+              showMusicPlayer={true}
+              onTogglePlayer={() => {}}
               colors={colors}
             />
+          </View>
+
+          {/* SECTION 5 — EPISODE HUB CARD */}
+          <View style={{ flex: 1, backgroundColor: colors.card, borderRadius: 14, borderWidth: 1, borderColor: colors.cardBorder, overflow: 'hidden' }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 14, paddingTop: 13, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: colors.cardBorder }}>
+              <View style={{ width: 3, height: 18, borderRadius: 2, backgroundColor: '#EC4899' }} />
+              <Feather name="archive" size={14} color={colors.textSecondary} />
+              <Text style={{ fontSize: 12, fontWeight: '700', letterSpacing: 0.5, textTransform: 'uppercase', color: colors.text }}>
+                Episode Hub
+              </Text>
+            </View>
+            <View style={{ padding: 20, alignItems: 'center', gap: 16 }}>
+              {/* Episode count */}
+              <View style={{ flexDirection: 'row', gap: 12, width: '100%' }}>
+                <View style={{ flex: 1, padding: 14, backgroundColor: colors.surface, borderRadius: 10, borderWidth: 1, borderColor: colors.cardBorder, alignItems: 'center' }}>
+                  <Text style={{ fontSize: 22, fontWeight: '700', color: colors.text }}>{podcasts.length}</Text>
+                  <Text style={{ fontSize: 11, color: colors.textMuted, marginTop: 2 }}>Total</Text>
+                </View>
+                <View style={{ flex: 1, padding: 14, backgroundColor: colors.surface, borderRadius: 10, borderWidth: 1, borderColor: colors.cardBorder, alignItems: 'center' }}>
+                  <Text style={{ fontSize: 22, fontWeight: '700', color: '#059669' }}>
+                    {podcasts.filter((p: any) => p.status === 'Published').length}
+                  </Text>
+                  <Text style={{ fontSize: 11, color: colors.textMuted, marginTop: 2 }}>Published</Text>
+                </View>
+                <View style={{ flex: 1, padding: 14, backgroundColor: colors.surface, borderRadius: 10, borderWidth: 1, borderColor: colors.cardBorder, alignItems: 'center' }}>
+                  <Text style={{ fontSize: 22, fontWeight: '700', color: '#D97706' }}>
+                    {podcasts.filter((p: any) => p.status === 'Draft').length}
+                  </Text>
+                  <Text style={{ fontSize: 11, color: colors.textMuted, marginTop: 2 }}>Drafts</Text>
+                </View>
+              </View>
+
+              <Text style={{ fontSize: 13, color: colors.textMuted, textAlign: 'center' }}>
+                Upload, edit, and publish your podcast episodes.
+              </Text>
+
+              {/* Open Episode Hub button */}
+              <TouchableOpacity
+                onPress={() => setShowEpisodeHub(true)}
+                style={{ width: '100%', borderRadius: 12, overflow: 'hidden' }}
+                activeOpacity={0.85}
+              >
+                <LinearGradient
+                  colors={['#EC4899', '#8B5CF6']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 14 }}
+                >
+                  <Feather name="external-link" size={16} color="#FFFFFF" />
+                  <Text style={{ fontSize: 14, fontWeight: '700', color: '#FFFFFF' }}>Open Episode Hub</Text>
+                </LinearGradient>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
+
       </ScrollView>
 
-      {/* Now Playing Banner for Episodes */}
+      {/* ── Now Playing Banner ──────────────────────────────── */}
       {playingEpisodeId && (
         <View style={{
           position: 'absolute',
@@ -1528,7 +1322,7 @@ const openTrimModal = (recording: Recording) => {
         </View>
       )}
 
-      {/* Modals */}
+      {/* ── Modals (unchanged) ──────────────────────────────── */}
       <NotificationsModal
         visible={showNotifications}
         onClose={() => setShowNotifications(false)}
@@ -1549,23 +1343,21 @@ const openTrimModal = (recording: Recording) => {
       />
 
       <SettingsModal
-  visible={showSettings}
-  onClose={() => setShowSettings(false)}
-  darkMode={isDarkMode}
-  onDarkModeChange={handleDarkModeChange}
-  notifications={notificationsEnabled}
-  onNotificationsChange={setNotificationsEnabled}
-  quality={streamQuality}
-  onQualityChange={(value: string) => {
-    setStreamQuality(value);
-    addNotification('Stream Quality', `Changed to ${value} quality`, 'system');
-    console.log('Quality changed to:', value); // For debugging
-  }}
-  onHelpSupport={handleHelpSupport}
-  isDarkMode={isDarkMode}
-/>
+        visible={showSettings}
+        onClose={() => setShowSettings(false)}
+        darkMode={isDarkMode}
+        onDarkModeChange={handleDarkModeChange}
+        notifications={notificationsEnabled}
+        onNotificationsChange={setNotificationsEnabled}
+        quality={streamQuality}
+        onQualityChange={(value: string) => {
+          setStreamQuality(value);
+          addNotification('Stream Quality', `Changed to ${value} quality`, 'system');
+        }}
+        onHelpSupport={handleHelpSupport}
+        isDarkMode={isDarkMode}
+      />
 
-      {/* Live Setup Modal */}
       <LiveSetupModal
         visible={showLiveSetup}
         liveSetupStep={liveSetupStep}
@@ -1584,7 +1376,6 @@ const openTrimModal = (recording: Recording) => {
         colors={colors}
       />
 
-      {/* Trim Modal */}
       <TrimModal
         visible={trimModalVisible}
         currentRecording={currentRecording}
@@ -1611,7 +1402,7 @@ const openTrimModal = (recording: Recording) => {
         colors={colors}
       />
 
-      {/* Calendar Modal */}
+      {/* Calendar Modal (unchanged) */}
       <Modal visible={showCalendar} transparent animationType="fade" onRequestClose={() => setShowCalendar(false)}>
         <View className="items-center justify-center flex-1 bg-black/80">
           <View className="rounded-2xl p-5 w-[90%] max-w-[400px]" style={{ backgroundColor: colors.card, borderColor: colors.cardBorder, borderWidth: 1 }}>
