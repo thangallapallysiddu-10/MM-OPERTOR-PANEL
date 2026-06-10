@@ -3,6 +3,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { apiClient } from '../services/api/apiClient';
 import { audioEngineManager } from '../services/audioEngine/core/AudioEngineManager';
+import { rjBackend } from '../features/rj/services/rjBackend';
 
 interface AudioEffectState {
   // Filters
@@ -23,23 +24,29 @@ interface PlayerAudioSettings {
   fx: AudioEffectState;
 }
 
+const DEFAULT_FX: AudioEffectState = {
+  highPassFilter: 20,
+  lowPassFilter: 20000,
+  eqBass: 50,
+  eqTreble: 50,
+  echoDelay: 0,
+};
+
 export const useAudioEffects = (studioId: string | null, playerName: 'A' | 'B') => {
   const [settings, setSettings] = useState<PlayerAudioSettings>({
     volume: 75,
-    fx: {
-      highPassFilter: 20,
-      lowPassFilter: 20000,
-      eqBass: 50,
-      eqTreble: 50,
-      echoDelay: 0,
-
-    },
+    fx: { ...DEFAULT_FX },
   });
 
   const [effectMetadata, setEffectMetadata] = useState<any>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const debounceTimers = useRef<{ [key: string]: any }>({});
+
+  const getEffectiveStudioId = useCallback(
+    () => studioId ?? rjBackend.getStudioId(),
+    [studioId]
+  );
 
   // Fetch effect metadata once
   const fetchEffectMetadata = useCallback(async () => {
@@ -55,14 +62,15 @@ export const useAudioEffects = (studioId: string | null, playerName: 'A' | 'B') 
 
   // Fetch player settings
   const fetchPlayerSettings = useCallback(async () => {
-    if (!studioId) return;
+    const effectiveStudioId = getEffectiveStudioId();
+    if (!effectiveStudioId) return;
 
     setLoading(true);
     setError(null);
 
     try {
       const response = await apiClient.get(
-        `/rj/${studioId}/players/${playerName}/settings`
+        `/rj/${effectiveStudioId}/players/${playerName}/settings`
       );
       if (response.data?.data) {
         setSettings(response.data.data);
@@ -77,7 +85,7 @@ export const useAudioEffects = (studioId: string | null, playerName: 'A' | 'B') 
     } finally {
       setLoading(false);
     }
-  }, [studioId, playerName]);
+  }, [getEffectiveStudioId, playerName]);
 
   // Load metadata and settings on mount
   useEffect(() => {
@@ -89,9 +97,6 @@ export const useAudioEffects = (studioId: string | null, playerName: 'A' | 'B') 
   // Update single effect
   const updateEffect = useCallback(
     (effectName: string, value: number) => {
-      if (!studioId) return;
-
-      // Optimistic update
       setSettings((prev) => {
         const newSettings = {
           ...prev,
@@ -101,6 +106,9 @@ export const useAudioEffects = (studioId: string | null, playerName: 'A' | 'B') 
         return newSettings;
       });
 
+      const effectiveStudioId = getEffectiveStudioId();
+      if (!effectiveStudioId) return;
+
       if (debounceTimers.current[effectName]) {
         clearTimeout(debounceTimers.current[effectName]);
       }
@@ -108,7 +116,7 @@ export const useAudioEffects = (studioId: string | null, playerName: 'A' | 'B') 
       debounceTimers.current[effectName] = setTimeout(async () => {
         try {
           await apiClient.patch(
-            `/rj/${studioId}/players/${playerName}/effect`,
+            `/rj/${effectiveStudioId}/players/${playerName}/effect`,
             { effectName, value }
           );
         } catch (err: any) {
@@ -117,17 +125,27 @@ export const useAudioEffects = (studioId: string | null, playerName: 'A' | 'B') 
         }
       }, 500);
     },
-    [studioId, playerName]
+    [getEffectiveStudioId, playerName]
   );
 
   // Update multiple effects
   const updateEffects = useCallback(
     async (fxValues: Partial<AudioEffectState>) => {
-      if (!studioId) return;
+      setSettings((prev) => {
+        const newSettings = {
+          ...prev,
+          fx: { ...prev.fx, ...fxValues },
+        };
+        audioEngineManager.getDeck(playerName).updateFX(newSettings.fx);
+        return newSettings;
+      });
+
+      const effectiveStudioId = getEffectiveStudioId();
+      if (!effectiveStudioId) return;
 
       try {
         const response = await apiClient.patch(
-          `/rj/${studioId}/players/${playerName}/effects`,
+          `/rj/${effectiveStudioId}/players/${playerName}/effects`,
           fxValues
         );
 
@@ -146,17 +164,14 @@ export const useAudioEffects = (studioId: string | null, playerName: 'A' | 'B') 
         setError(err?.message || 'Failed to update effects');
       }
     },
-    [studioId, playerName]
+    [getEffectiveStudioId, playerName]
   );
 
   // Update volume
   const updateVolume = useCallback(
     (volume: number) => {
-      if (!studioId) return;
-
       const roundedVolume = Math.round(volume);
 
-      // Optimistic update
       setSettings((prev) => {
         const newSettings = {
           ...prev,
@@ -166,6 +181,9 @@ export const useAudioEffects = (studioId: string | null, playerName: 'A' | 'B') 
         return newSettings;
       });
 
+      const effectiveStudioId = getEffectiveStudioId();
+      if (!effectiveStudioId) return;
+
       if (debounceTimers.current['volume']) {
         clearTimeout(debounceTimers.current['volume']);
       }
@@ -173,7 +191,7 @@ export const useAudioEffects = (studioId: string | null, playerName: 'A' | 'B') 
       debounceTimers.current['volume'] = setTimeout(async () => {
         try {
           await apiClient.patch(
-            `/rj/${studioId}/players/${playerName}/volume`,
+            `/rj/${effectiveStudioId}/players/${playerName}/volume`,
             { volume: roundedVolume }
           );
         } catch (err: any) {
@@ -182,16 +200,26 @@ export const useAudioEffects = (studioId: string | null, playerName: 'A' | 'B') 
         }
       }, 500);
     },
-    [studioId, playerName]
+    [getEffectiveStudioId, playerName]
   );
 
   // Reset all effects to defaults
   const resetEffects = useCallback(async () => {
-    if (!studioId) return;
+    setSettings((prev) => {
+      const newSettings = {
+        ...prev,
+        fx: { ...DEFAULT_FX },
+      };
+      audioEngineManager.getDeck(playerName).updateFX(newSettings.fx);
+      return newSettings;
+    });
+
+    const effectiveStudioId = getEffectiveStudioId();
+    if (!effectiveStudioId) return;
 
     try {
       const response = await apiClient.post(
-        `/rj/${studioId}/players/${playerName}/effects/reset`
+        `/rj/${effectiveStudioId}/players/${playerName}/effects/reset`
       );
 
       if (response.data?.data) {
@@ -208,7 +236,7 @@ export const useAudioEffects = (studioId: string | null, playerName: 'A' | 'B') 
       console.error('Error resetting effects:', err);
       setError(err?.message || 'Failed to reset effects');
     }
-  }, [studioId, playerName]);
+  }, [getEffectiveStudioId, playerName]);
 
   return {
     settings,

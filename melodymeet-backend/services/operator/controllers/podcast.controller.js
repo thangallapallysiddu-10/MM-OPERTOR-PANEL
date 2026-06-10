@@ -246,45 +246,6 @@ const updateLiveViewers = async (req, res) => {
   }
 };
 
-const getGuests = async (req, res) => {
-  try {
-    const guests = await podcastService.getGuests(req.params.roomId, req.query);
-    res.status(200).json({ success: true, data: guests });
-  } catch (err) {
-    sendError(res, err);
-  }
-};
-
-const joinLiveSession = async (req, res) => {
-  try {
-    const guest = await podcastService.joinLiveSession(req.body);
-    res.status(201).json({ success: true, data: guest });
-  } catch (err) {
-    sendError(res, err, 400);
-  }
-};
-
-const respondToGuest = async (req, res) => {
-  try {
-    const guest = await podcastService.respondToGuest(req.params.id, req.body.action);
-    await podcastSocket.emitGuestChanged(guest.roomId, guest);
-    res.status(200).json({ success: true, data: guest });
-  } catch (err) {
-    sendError(res, err, 400);
-  }
-};
-
-const removeGuest = async (req, res) => {
-  try {
-    const guest = await podcastService.removeGuest(req.params.id);
-    const plainGuest = guest.get ? guest.get({ plain: true }) : guest;
-    await podcastSocket.emitGuestChanged(plainGuest.roomId, { ...plainGuest, status: 'denied' });
-    res.status(200).json({ success: true, message: 'Guest removed from session', data: guest });
-  } catch (err) {
-    sendError(res, err);
-  }
-};
-
 const getNotifications = async (req, res) => {
   try {
     const notifications = await podcastService.getNotifications(req.query);
@@ -495,11 +456,6 @@ module.exports = {
   startLiveSession,
   stopLiveSession,
   updateLiveViewers,
-  // Guests (approval flow)
-  getGuests,
-  joinLiveSession,
-  respondToGuest,
-  removeGuest,
   // Guest Link Manager
   generateGuestLinks,
   getGuestSlots,

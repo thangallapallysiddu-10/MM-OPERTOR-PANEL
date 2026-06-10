@@ -61,13 +61,6 @@ const emitOpenConnectStatus = (socket, payload) => {
   socket.emit('openconnect_status', payload);
 };
 
-const emitGuestStatus = (guestId, guestPayload) => {
-  // DEPRECATED — guest_status / openconnect_mic_status consumed by legacy GuestRoom.tsx
-  // (old approval flow). Not used by GuestJoinPage (new slot flow).
-  podcastNamespace.to(`guest:${guestId}`).emit('guest_status', guestPayload);
-  podcastNamespace.to(`guest:${guestId}`).emit('openconnect_mic_status', guestPayload);
-};
-
 const getViewerCount = (roomId) => {
   const room = getRoom(roomId);
   const uniqueViewerSocketIds = new Set(room.audience);
@@ -89,36 +82,6 @@ const emitViewerCount = async (roomId) => {
   }
 
   return viewerCount;
-};
-
-const emitGuestChanged = async (roomId, guest) => {
-  // DEPRECATED — emitGuestChanged is only triggered by the legacy approval flow
-  // (respondToGuest / removeGuest via old HTTP routes).
-  // The new slot system uses emitSlotUpdated, emitGuestMuteChanged, emitGuestRemoved instead.
-  // Keep for backward compatibility until legacy routes are removed.
-  if (!podcastNamespace || !roomId || !guest) return;
-
-  const room = getRoom(roomId);
-  if (guest.status === 'approved') {
-    const guestSocketId = room.guestSockets?.get?.(String(guest.id));
-    if (guestSocketId) {
-      room.approvedGuests.set(String(guest.id), guestSocketId);
-      const guestSocket = podcastNamespace.sockets.get(guestSocketId);
-      if (guestSocket) {
-        guestSocket.data.guestStatus = 'approved';
-        guestSocket.emit('chat_history', { roomId, messages: room.chatHistory });
-      }
-    }
-  } else {
-    room.approvedGuests.delete(String(guest.id));
-  }
-
-  emitGuestStatus(guest.id, {
-    ...(guest.get ? guest.get({ plain: true }) : guest),
-    approvedByHost: guest.status === 'approved',
-  });
-  podcastNamespace.to(`podcast:${roomId}:hosts`).emit('guest_update', guest);
-  await emitViewerCount(roomId);
 };
 
 const emitSessionEnded = (roomId) => {
@@ -207,21 +170,6 @@ const removeSocketFromRooms = async (socket) => {
     if (guestId) {
       room.approvedGuests.delete(guestId);
       room.guestSockets.delete(guestId);
-
-      try {
-        const guest = await podcastService.removeGuest(guestId);
-        const plainGuest = guest.get ? guest.get({ plain: true }) : guest;
-        podcastNamespace.to(`podcast:${roomId}:hosts`).emit('guest_update', {
-          ...plainGuest,
-          status: 'denied',
-        });
-        emitGuestStatus(guestId, {
-          ...plainGuest,
-          status: 'denied',
-        });
-      } catch (_) {
-        // Already removed guests are fine during disconnect cleanup.
-      }
     }
 
     await emitViewerCount(roomId);
@@ -254,10 +202,8 @@ const podcastSocket = (io) => {
       }
       socket.join(`podcast:${cleanRoomId}:hosts`);
 
-      const guests = await podcastService.getGuests(cleanRoomId).catch(() => []);
       socket.emit('room_snapshot', {
         roomId: cleanRoomId,
-        guests,
         viewerCount: getViewerCount(cleanRoomId),
         chatHistory: room.chatHistory,
       });
@@ -289,56 +235,6 @@ const podcastSocket = (io) => {
 
     socket.on('audience_join', handleOpenConnectJoin);
     socket.on('openconnect_join', handleOpenConnectJoin);
-
-    // -----------------------------------------------------------------------
-    // DEPRECATED — Legacy approval-flow socket handlers.
-    // These handlers support the old GuestRoom.tsx flow:
-    //   guest_request → creates pending PodcastGuest → host approves/denies.
-    // The current UI uses the slot-join flow exclusively.
-    // These handlers MUST NOT be used as the identity anchor for WebRTC signaling.
-    // Remove after legacy routes (POST /live/guests/join, PUT /live/guests/:id/respond)
-    // are formally decommissioned.
-    // -----------------------------------------------------------------------
-
-    const handleGuestRequest = async ({ roomId, name, device } = {}) => {
-      // DEPRECATED — old approval flow. Not triggered by GuestJoinPage.
-      const cleanRoomId = String(roomId || '').trim();
-      if (!cleanRoomId || !String(name || '').trim()) {
-        socket.emit('podcast_error', { message: 'roomId and name are required' });
-        return;
-      }
-
-      try {
-        const guest = await podcastService.joinLiveSession({
-          roomId: cleanRoomId,
-          name,
-          device: device || 'Unknown Device',
-        });
-
-        const room = getRoom(cleanRoomId);
-        room.guestSockets.set(String(guest.id), socket.id);
-
-        socket.data.guestId = guest.id;
-        socket.data.guestName = guest.name;
-        socket.data.guestStatus = 'pending';
-        if (!socket.data.podcastRooms.includes(cleanRoomId)) {
-          socket.data.podcastRooms.push(cleanRoomId);
-        }
-        socket.join(`podcast:${cleanRoomId}`);
-        socket.join(`guest:${guest.id}`);
-        const pendingGuest = { ...(guest.get ? guest.get({ plain: true }) : guest), status: 'pending' };
-        socket.emit('guest_status', pendingGuest);
-        socket.emit('openconnect_mic_status', pendingGuest);
-        podcastNamespace.to(`podcast:${cleanRoomId}:hosts`).emit('guest_request', pendingGuest);
-      } catch (err) {
-        socket.emit('podcast_error', { message: err.message || 'Could not join room' });
-      }
-    };
-
-    // DEPRECATED — see block comment above
-    socket.on('guest_request', handleGuestRequest);
-    // DEPRECATED — openconnect alias for guest_request
-    socket.on('openconnect_request_mic', handleGuestRequest);
 
     const handleHostChatMessage = ({ roomId, text, name } = {}) => {
       const cleanRoomId = String(roomId || '').trim();
@@ -431,57 +327,7 @@ const podcastSocket = (io) => {
     socket.on('listener_chat_message', handleOpenConnectChatMessage);
     // (openconnect_chat_message alias registered in DEPRECATED block below)
 
-    const handleGuestResponse = async ({ guestId, action } = {}) => {
-      // DEPRECATED — legacy approval flow. No current UI emits host_guest_response
-      // or operator_guest_response. Remove after legacy routes are decommissioned.
-      try {
-        const hostRooms = (socket.data.podcastRooms || []).filter((roomId) => getRoom(roomId).hosts.has(socket.id));
-        if (hostRooms.length === 0) {
-          socket.emit('podcast_error', { message: 'Only the room host can approve guests' });
-          return;
-        }
-
-        const guest = await podcastService.respondToGuest(guestId, action, { allowedRoomIds: hostRooms });
-        await emitGuestChanged(guest.roomId, guest);
-      } catch (err) {
-        socket.emit('podcast_error', { message: err.message || 'Could not respond to guest' });
-      }
-    };
-
-    // DEPRECATED — see legacy block comment above
-    socket.on('host_guest_response', handleGuestResponse);
-    // DEPRECATED — operator_guest_response alias
-    socket.on('operator_guest_response', handleGuestResponse);
-
-    socket.on('guest_mic_state', ({ roomId, guestId, muted, level } = {}) => {
-      // DEPRECATED — guest_mic_state emitted by legacy GuestRoom.tsx (old approval flow).
-      // GuestJoinPage uses guest_mic_toggle instead.
-      const cleanRoomId = String(roomId || '').trim();
-      if (!cleanRoomId || !guestId) return;
-      podcastNamespace.to(`podcast:${cleanRoomId}:hosts`).emit('guest_mic_state', {
-        roomId: cleanRoomId,
-        guestId,
-        muted: Boolean(muted),
-        level: Math.max(0, Math.min(100, Number(level || 0))),
-      });
-    });
-
-    socket.on('guest_leave', async () => {
-      // DEPRECATED — guest_leave emitted by legacy GuestRoom.tsx.
-      // GuestJoinPage uses guest_left (slot-aware) instead.
-      await removeSocketFromRooms(socket);
-      socket.disconnect(true);
-    });
-
-    socket.on('openconnect_leave', async () => {
-      // DEPRECATED — openconnect_leave alias. Legacy GuestRoom.tsx path.
-      await removeSocketFromRooms(socket);
-      socket.disconnect(true);
-    });
-
-    // DEPRECATED — openconnect_chat_message alias. Legacy listener chat path.
     socket.on('openconnect_chat_message', handleOpenConnectChatMessage);
-    // DEPRECATED — openconnect_guest_chat_message alias. Legacy guest chat path.
     socket.on('openconnect_guest_chat_message', handleGuestChatMessage);
 
     // -----------------------------------------------------------------------
@@ -667,7 +513,6 @@ const podcastSocket = (io) => {
   });
 };
 
-podcastSocket.emitGuestChanged = emitGuestChanged;
 podcastSocket.emitViewerCount = emitViewerCount;
 podcastSocket.emitSessionEnded = emitSessionEnded;
 podcastSocket.emitSlotUpdated = emitSlotUpdated;

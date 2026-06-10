@@ -12,10 +12,8 @@ const router = express.Router();
 
 function asyncRoute(handler) {
   return async (req, res, next) => {
-    console.log(`[AUTH] ${req.method} ${req.originalUrl} body:`, JSON.stringify(req.body).slice(0, 200));
     try {
       const data = await handler(req.body, req);
-      console.log(`[AUTH] ${req.originalUrl} => SUCCESS`);
       res.json({ success: true, ...data });
     } catch (error) {
       console.error(`[AUTH] ${req.originalUrl} => ERROR:`, error.message);

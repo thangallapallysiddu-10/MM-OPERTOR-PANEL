@@ -592,74 +592,6 @@ const updateLiveViewers = async (roomId, viewerCount) => {
   return session;
 };
 
-const getGuests = async (roomId, query = {}) => {
-  if (!roomId) throw badRequest('roomId is required');
-  const where = { roomId };
-  if (query.status) where.status = query.status;
-
-  return await PodcastGuest.findAll({
-    where,
-    order: [['joinedAt', 'ASC']],
-  });
-};
-
-const joinLiveSession = async (data) => {
-  const payload = validate(schemas.podcastGuestJoin, data);
-
-  const session = await PodcastLiveSession.findOne({
-    where: { roomId: payload.roomId, status: 'live' },
-  });
-  if (!session) throw badRequest('No active live session found for this room ID');
-
-  // Every join request starts pending; approval is only allowed through host response.
-  const existing = await PodcastGuest.findOne({
-    where: { roomId: payload.roomId, name: payload.name, status: { [Op.in]: ['pending', 'approved'] } },
-  });
-  if (existing) {
-    await existing.update({
-      ...payload,
-      status: 'pending',
-      respondedAt: null,
-      joinedAt: new Date(),
-    });
-    return existing;
-  }
-
-  return await PodcastGuest.create({
-    ...payload,
-    status: 'pending',
-    joinedAt: new Date(),
-  });
-};
-
-const respondToGuest = async (id, action, options = {}) => {
-  const payload = validate(schemas.podcastGuestRespond, { action });
-  const guest = await PodcastGuest.findByPk(parseId(id));
-
-  if (!guest) throw notFound('Guest request not found');
-  if (Array.isArray(options.allowedRoomIds) && !options.allowedRoomIds.includes(guest.roomId)) {
-    throw badRequest('Host is not connected to this guest room');
-  }
-
-  const session = await PodcastLiveSession.findOne({
-    where: { roomId: guest.roomId, status: 'live' },
-  });
-  if (!session) throw badRequest('Session for this guest request is no longer active');
-
-  guest.status = payload.action === 'approve' ? 'approved' : 'denied';
-  guest.respondedAt = new Date();
-  await guest.save();
-  return guest;
-};
-
-const removeGuest = async (id) => {
-  const guest = await PodcastGuest.findByPk(parseId(id));
-  if (!guest) throw notFound('Guest not found');
-
-  await guest.destroy();
-  return guest;
-};
-
 // Notifications
 const getNotifications = async (query = {}) => {
   const where = {};
@@ -783,11 +715,6 @@ module.exports = {
   startLiveSession,
   stopLiveSession,
   updateLiveViewers,
-  // Guests (approval flow)
-  getGuests,
-  joinLiveSession,
-  respondToGuest,
-  removeGuest,
   // Guest Link Manager
   generateGuestLinks,
   getGuestSlots,

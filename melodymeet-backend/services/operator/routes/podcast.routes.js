@@ -22,11 +22,6 @@ const {
   startLiveSession,
   stopLiveSession,
   updateLiveViewers,
-  // Guests (approval flow)
-  getGuests,
-  joinLiveSession,
-  respondToGuest,
-  removeGuest,
   // Guest Link Manager
   generateGuestLinks,
   getGuestSlots,
@@ -102,23 +97,6 @@ router.get('/live/sessions', getPodcastLiveSessions);
 router.post('/live/start', validateRequest(schemas.podcastLiveStart, 'body'), startLiveSession);
 router.post('/live/stop', validateRequest(schemas.podcastLiveStop, 'body'), stopLiveSession);
 router.put('/live/viewers', updateLiveViewers);
-
-// ---------------------------------------------------------------------------
-// DEPRECATED — Legacy approval-flow routes.
-// These routes support the old guest queue / approval workflow.
-// The current UI uses the slot-join system exclusively.
-// Do NOT wire WebRTC signaling to these routes.
-// Remove after legacy GuestRoom.tsx and approval flow are formally decommissioned.
-// ---------------------------------------------------------------------------
-
-// DEPRECATED — creates a pending PodcastGuest (approval flow)
-router.get('/live/guests/:roomId', getGuests);
-// DEPRECATED — guest submits name to approval queue
-router.post('/live/guests/join', validateRequest(schemas.podcastGuestJoin, 'body'), joinLiveSession);
-// DEPRECATED — operator approves or denies a pending guest
-router.put('/live/guests/:id/respond', validateRequest(schemas.podcastGuestRespond, 'body'), respondToGuest);
-// DEPRECATED — removes a guest by DB id (approval-flow identity)
-router.delete('/live/guests/:id', removeGuest);
 
 // Notification routes
 router.get('/notifications', getNotifications);

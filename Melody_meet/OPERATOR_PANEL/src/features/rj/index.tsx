@@ -26,18 +26,10 @@ import { usePlaylistPlayer } from './hooks/usePlaylistPlayer';
 import { useChat } from './hooks/useChat';
 import { useRjSync } from './hooks/useRjSync';
 import { RjApi } from '../../services/api/rjApi';
-import { debouncedRjSync, syncDualPlayer } from './services/rjApiSync';
+import { syncDualPlayer } from './services/rjApiSync';
 import { rjBackend } from './services/rjBackend';
 import { chatSocket } from '../../services/socketService';
-import { audioEngineManager } from '../../services/audioEngine/core/AudioEngineManager';
-import { NowPlaying } from './components/NowPlaying';
-import { LiveChat } from './components/LiveChat';
-import { PinnedMessage } from './components/PinnedMessage';
 import { RjSetupModal } from './components/modals/RjSetupModal';
-
-import { PlaylistModal } from './components/modals/PlaylistModal';
-import { GiftModal } from './components/modals/GiftModal';
-import { StickerModal } from './components/modals/StickerModal';
 
 const isIOS = Platform.OS === 'ios';
 const isAndroid = Platform.OS === 'android';
@@ -156,8 +148,18 @@ const RJStudio = ({ navigation }: any) => {
     chat.injectDemoMessages();
   }, []);
 
-  const handleLoadLocalToStandby = (track: Track, playerId: 'A' | 'B' = 'A') => {
-    player.loadIntoStandby(track, playerId);
+  const handleGoLive = () => {
+    toggleLive();
+    setShowRjSetupModal(true);
+  };
+
+  const handleToggleLiveFromModal = () => {
+    if (isLive) {
+      toggleLive();
+      setShowRjSetupModal(false);
+    } else {
+      toggleLive();
+    }
   };
 
   const styles = StyleSheet.create({
@@ -249,21 +251,28 @@ const RJStudio = ({ navigation }: any) => {
       fontWeight: '500' as const,
       color: isDarkMode ? '#94A3B8' : '#475569',
     },
-    row: {
-      flexDirection: isMobile ? 'column' as const : 'row' as const,
-      gap: 14,
-    },
-    mainContent: {
-      flex: 1,
-      gap: 14,
-      minWidth: isMobile ? '100%' : 320,
-    },
-    topRow: {
+    goLiveButton: {
       flexDirection: 'row' as const,
-      flexWrap: 'wrap' as const,
-      gap: 12,
+      alignItems: 'center' as const,
+      justifyContent: 'center' as const,
+      gap: 8,
+      paddingHorizontal: 20,
+      paddingVertical: 10,
+      borderRadius: 25,
       marginBottom: 14,
-      alignItems: 'stretch' as const,
+      backgroundColor: '#059669',
+      alignSelf: 'center',
+      shadowColor: '#059669',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.2,
+      shadowRadius: 4,
+      elevation: 3,
+      width: '20%',
+    },
+    goLiveButtonText: {
+      fontSize: 14,
+      fontWeight: '600' as const,
+      color: '#FFFFFF',
     },
     rjSetupButton: {
       flexDirection: 'row' as const,
@@ -285,12 +294,6 @@ const RJStudio = ({ navigation }: any) => {
       fontSize: 13,
       fontWeight: '700' as const,
       color: '#FFFFFF',
-    },
-    rjSetupHint: {
-      fontSize: 11,
-      color: isDarkMode ? '#64748B' : '#94A3B8',
-      marginTop: 4,
-      lineHeight: 16,
     },
     announcementBanner: {
       marginBottom: 12,
@@ -348,31 +351,6 @@ const RJStudio = ({ navigation }: any) => {
       fontSize: 9,
       fontWeight: 'bold' as const,
       color: '#FFFFFF',
-    },
-    masterControls: {
-      flexDirection: 'row' as const,
-      alignItems: 'center' as const,
-      gap: 10,
-      flexWrap: 'wrap' as const,
-      borderRadius: 14,
-      padding: 14,
-      backgroundColor: isDarkMode ? '#1E293B' : '#FFFFFF',
-      borderWidth: 1,
-      borderColor: isDarkMode ? '#334155' : '#E2E8F0',
-    },
-    controlButton: {
-      paddingHorizontal: 12,
-      paddingVertical: 8,
-      borderRadius: 8,
-      minWidth: 60,
-      alignItems: 'center' as const,
-    },
-    timerText: {
-      fontSize: 13,
-      fontFamily: 'monospace',
-      marginLeft: 'auto' as const,
-      fontWeight: '600' as const,
-      color: isDarkMode ? '#94A3B8' : '#475569',
     },
   });
 
@@ -466,107 +444,18 @@ const RJStudio = ({ navigation }: any) => {
             </View>
           </View>
 
+          {!isLive && (
+            <TouchableOpacity onPress={handleGoLive} style={styles.goLiveButton}>
+              <MaterialIcons name="live-tv" size={24} color="#FFFFFF" />
+              <Text style={styles.goLiveButtonText}>GO LIVE</Text>
+            </TouchableOpacity>
+          )}
+
           {showAnnouncement && (
             <View style={styles.announcementBanner}>
               <Text style={styles.announcementText}>{announcementMessage}</Text>
             </View>
           )}
-
-          <View style={styles.topRow}>
-            {/* Column 1: NOW PLAYING */}
-            <NowPlaying 
-              track={localCurrentTrack || {
-                id: 0,
-                title: "",
-                artist: "",
-                duration: "0:00",
-                bpm: 0,
-                channel: 1,
-                beatIntensity: 0,
-                shortTitle: "",
-                gain: 0,
-                eq: { low: 0, mid: 0, high: 0 },
-                fx: { echo: 0, flanger: 0, loop: 0, reverse: 0, hotCue: 0 }
-              }}
-              mood={currentMood}
-              isDarkMode={isDarkMode}
-              colors={colors}
-              playlistLength={playlist.playlist.length}
-              isPlaylistActive={playlist.isPlaylistActive}
-              onOpenPlaylist={() => playlist.setShowPlaylistModal(true)}
-            />
-         
-            <TouchableOpacity
-              onPress={() => setShowRjSetupModal(true)}
-              style={{
-                flex: 1,
-                minWidth: 140,
-                borderRadius: 14,
-                padding: 14,
-                justifyContent: 'center',
-                backgroundColor: isDarkMode ? '#1E293B' : '#FFFFFF',
-                borderWidth: 1,
-                borderColor: isDarkMode ? '#334155' : '#E2E8F0',
-              }}
-            >
-              <Text style={{ fontSize: 13, fontWeight: '700', color: isDarkMode ? '#F1F5F9' : '#0F172A' }}>
-                Studio controls
-              </Text>
-              <Text style={styles.rjSetupHint}>
-                Dual player · FX controls · Local files · Mics
-              </Text>
-              <Text style={{ fontSize: 11, fontWeight: '600', color: isDarkMode ? '#6B8EFF' : '#4F6AF0', marginTop: 8 }}>
-                Open RJ Setup →
-              </Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* PINNED MESSAGE */}
-          <PinnedMessage 
-            pinnedMessage={chat.pinnedMessage}
-            isDarkMode={isDarkMode}
-            colors={colors}
-            onUnpin={() => chat.setPinnedMessage(null)}
-          />
-
-          <View style={styles.row}>
-            <View style={styles.mainContent}>
-              <LiveChat 
-                messages={chat.messages}
-                filteredMessages={chat.filteredMessages}
-                newMessage={chat.newMessage}
-                replyTo={chat.replyTo}
-                bannedUsers={chat.bannedUsers}
-                showBanList={chat.showBanList}
-                showEmojiPicker={chat.showEmojiPicker}
-                activeEmojiCategory={chat.activeEmojiCategory}
-                isDarkMode={isDarkMode}
-                colors={colors}
-                flatListRef={chat.flatListRef}
-                isAtBottom={chat.isAtBottom}
-                typingUsers={chat.typingUsers}
-                pinnedMessage={chat.pinnedMessage}
-                onSendMessage={chat.handleSendMessage}
-                onNewMessageChange={chat.setNewMessage}
-                onLikeMessage={chat.handleLikeMessage}
-                onReply={chat.handleReply}
-                onShareMessage={() => {}}
-                onBanUser={chat.banUser}
-                onRestrictUser={chat.restrictUser}
-                onUnbanUser={chat.unbanUser}
-                onClearChat={chat.clearChat}
-                onPinMessage={chat.pinMessage}
-                onToggleEmojiPicker={() => chat.setShowEmojiPicker(!chat.showEmojiPicker)}
-                onAddEmoji={chat.addEmoji}
-                onSetActiveEmojiCategory={chat.setActiveEmojiCategory}
-                onCancelReply={() => chat.setReplyTo(null)}
-                onOpenGiftModal={() => chat.setShowGiftModal(true)}
-                onOpenStickerModal={() => chat.setShowStickerModal(true)}
-                onToggleBanList={() => chat.setShowBanList(!chat.showBanList)}
-                onScroll={chat.handleScroll}
-              />
-            </View>
-          </View>
         </ScrollView>
       </KeyboardAvoidingView>
 
@@ -596,71 +485,7 @@ const RJStudio = ({ navigation }: any) => {
         onMarkAsRead={notifications.markNotificationAsRead}
         onMarkAllAsRead={notifications.markAllNotificationsAsRead}
       />
-      
-      <PlaylistModal 
-        visible={playlist.showPlaylistModal}
-        playlist={playlist.playlist}
-        uploadedLocalFiles={playlist.uploadedLocalFiles}
-        playlistDuration={playlist.playlistDuration}
-        customDuration={playlist.customDuration}
-        timerRemaining={playlist.timerRemaining}
-        isPlaylistActive={playlist.isPlaylistActive}
-        isPlaylistPaused={playlist.isPlaylistPaused} 
-        isDarkMode={isDarkMode}
-        colors={colors}
-        monitorData={playlist.monitorData}
-        currentPlaylistIndex={playlist.currentPlaylistIndex}
-        isSongInPlaylist={playlist.isSongInPlaylist}
-        isListening={isListening}
-        onListenToggle={handleListenToggle}
-        onClose={() => playlist.setShowPlaylistModal(false)}
-        onAddLocalFile={playlist.addLocalFileToPlaylist}
-        onUploadAndAddLocalFile={playlist.uploadAndAddLocalFile}
-        onClearPlaylist={playlist.clearPlaylist}
-        onRemoveSong={playlist.removeFromPlaylist}
-        onPausePlaylist={playlist.pausePlaylist}            
-        onResumePlaylist={playlist.resumePlaylist}          
-        onStopPlaylist={playlist.stopPlaylist}       
-        onSkipToNext={playlist.skipToNext}
-        onStartPlaylist={playlist.startPlaylist}
-        onSetDuration={(dur) => {
-          playlist.setPlaylistDuration(dur);
-          playlist.setCustomDuration("");
-        }}
-        onSetCustomDuration={playlist.handleSetCustomDuration}
-        formatTimer={playlist.formatTimer}
-      />
-      
-      <GiftModal 
-        visible={chat.showGiftModal}
-        isDarkMode={isDarkMode}
-        colors={colors}
-        onClose={() => chat.setShowGiftModal(false)}
-        onSendGift={(gift) => {
-          const text = `${gift.emoji} Sent ${gift.label} to everyone!`;
-          const sid = studioId ? String(studioId) : rjBackend.getStudioId();
-          if (rjBackend.isEnabled() && sid) {
-            chatSocket.sendGift(sid, gift.id, 'RJ');
-            void RjApi.sendGift(sid, { username: 'RJ', giftId: gift.id, giftLabel: gift.label }).catch(() => {});
-          }
-          const giftMsg: Message = {
-            id: Date.now(),
-            user: "RJ",
-            text,
-            time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-            system: false,
-            likeCount: 0,
-            isLiked: false,
-            avatar: "R",
-            isVIP: true,
-            giftAmount: 1
-          };
-          chat.setMessages((prev: Message[]) => [...prev, giftMsg]);
-          notifications.addNotification("system", `🎁 RJ sent ${gift.label} to everyone!`);
-          setTimeout(() => chat.flatListRef.current?.scrollToEnd({ animated: true }), 100);
-        }}
-      />
-      
+
       <RjSetupModal
         visible={showRjSetupModal}
         isDarkMode={isDarkMode}
@@ -668,11 +493,11 @@ const RJStudio = ({ navigation }: any) => {
         colors={colors}
         isLive={isLive}
         activeChannel={activeChannel}
-        studioId={studioId}
+        studioId={studioId != null ? String(studioId) : null}
         timerFormatted={timer.formatTime()}
         timerIsPaused={timer.isPaused}
         onClose={() => setShowRjSetupModal(false)}
-        onToggleLive={toggleLive}
+        onToggleLive={handleToggleLiveFromModal}
         onToggleTimerPause={() => timer.setIsPaused(!timer.isPaused)}
         onPlayLocalTrack={handleLocalFilePlayTrack}
         onLoadLocalToStandby={(track, playerId) => {
@@ -714,39 +539,138 @@ const RJStudio = ({ navigation }: any) => {
           micSystem.setNewMicName(name);
           return micSystem.addNewMic();
         }}
-      />
-
-      <StickerModal 
-        visible={chat.showStickerModal}
-        isDarkMode={isDarkMode}
-        colors={colors}
-        onClose={() => chat.setShowStickerModal(false)}
-        onSendSticker={(sticker) => {
-          const text = sticker.emoji.repeat(3);
-          const sid = studioId ? String(studioId) : rjBackend.getStudioId();
-          if (rjBackend.isEnabled() && sid) {
-            chatSocket.sendSticker(sid, sticker.name, 'RJ');
-            void RjApi.sendEmoji(sid, {
-              username: 'RJ',
-              emojiId: sticker.name.toLowerCase().replace(/\s+/g, '-'),
-              emoji: sticker.emoji,
-              label: sticker.name,
-            }).catch(() => {});
-          }
-          const stickerMsg: Message = {
-            id: Date.now(),
-            user: "RJ",
-            text,
-            time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-            system: false,
-            likeCount: 0,
-            isLiked: false,
-            avatar: "R",
-            isVIP: true
-          };
-          chat.setMessages((prev: Message[]) => [...prev, stickerMsg]);
-          notifications.addNotification("system", `🎨 RJ sent a ${sticker.name} sticker!`);
-          setTimeout(() => chat.flatListRef.current?.scrollToEnd({ animated: true }), 100);
+        nowPlaying={{
+          localCurrentTrack,
+          currentMood,
+          playlistLength: playlist.playlist.length,
+          isPlaylistActive: playlist.isPlaylistActive,
+          onOpenPlaylist: () => playlist.setShowPlaylistModal(true),
+        }}
+        playlist={{
+          showPlaylistModal: playlist.showPlaylistModal,
+          playlist: playlist.playlist.map((track) => ({
+            ...track,
+            bpm: track.bpm || 0,
+          })),
+          uploadedLocalFiles: (playlist.uploadedLocalFiles || []).map((file) => ({
+            id: file.id,
+            name: file.name,
+            duration: file.duration,
+          })),
+          playlistDuration: playlist.playlistDuration,
+          customDuration: playlist.customDuration,
+          timerRemaining: playlist.timerRemaining,
+          isPlaylistActive: playlist.isPlaylistActive,
+          isPlaylistPaused: playlist.isPlaylistPaused,
+          monitorData: playlist.monitorData,
+          currentPlaylistIndex: playlist.currentPlaylistIndex,
+          isSongInPlaylist: playlist.isSongInPlaylist,
+          isListening,
+          onListenToggle: handleListenToggle,
+          onClosePlaylist: () => playlist.setShowPlaylistModal(false),
+          onAddLocalFile: playlist.addLocalFileToPlaylist,
+          onUploadAndAddLocalFile: playlist.uploadAndAddLocalFile,
+          onClearPlaylist: playlist.clearPlaylist,
+          onRemoveSong: playlist.removeFromPlaylist,
+          onPausePlaylist: playlist.pausePlaylist,
+          onResumePlaylist: playlist.resumePlaylist,
+          onStopPlaylist: playlist.stopPlaylist,
+          onSkipToNext: playlist.skipToNext,
+          onStartPlaylist: playlist.startPlaylist,
+          onSetDuration: (dur) => {
+            playlist.setPlaylistDuration(dur);
+            playlist.setCustomDuration('');
+          },
+          onSetCustomDuration: playlist.handleSetCustomDuration,
+          formatTimer: playlist.formatTimer,
+        }}
+        chat={{
+          chatMessages: chat.messages,
+          filteredChatMessages: chat.filteredMessages,
+          chatNewMessage: chat.newMessage,
+          chatReplyTo: chat.replyTo,
+          bannedUsers: chat.bannedUsers,
+          showBanList: chat.showBanList,
+          showEmojiPicker: chat.showEmojiPicker,
+          activeEmojiCategory: chat.activeEmojiCategory,
+          flatListRef: chat.flatListRef,
+          isAtBottom: chat.isAtBottom,
+          typingUsers: chat.typingUsers,
+          pinnedMessage: chat.pinnedMessage,
+          onSendChatMessage: chat.handleSendMessage,
+          onChatMessageChange: chat.setNewMessage,
+          onLikeChatMessage: chat.handleLikeMessage,
+          onReplyChat: chat.handleReply,
+          onShareMessage: () => {},
+          onBanUser: chat.banUser,
+          onRestrictUser: chat.restrictUser,
+          onUnbanUser: chat.unbanUser,
+          onClearChat: chat.clearChat,
+          onPinMessage: chat.pinMessage,
+          onToggleEmojiPicker: () => chat.setShowEmojiPicker(!chat.showEmojiPicker),
+          onAddEmoji: chat.addEmoji,
+          onSetActiveEmojiCategory: chat.setActiveEmojiCategory,
+          onCancelReply: () => chat.setReplyTo(null),
+          onOpenGiftModal: () => chat.setShowGiftModal(true),
+          onOpenStickerModal: () => chat.setShowStickerModal(true),
+          onToggleBanList: () => chat.setShowBanList(!chat.showBanList),
+          onChatScroll: chat.handleScroll,
+        }}
+        giftSticker={{
+          showGiftModal: chat.showGiftModal,
+          showStickerModal: chat.showStickerModal,
+          onCloseGiftModal: () => chat.setShowGiftModal(false),
+          onCloseStickerModal: () => chat.setShowStickerModal(false),
+          onSendGift: (gift) => {
+            const text = `${gift.emoji} Sent ${gift.label} to everyone!`;
+            const sid = studioId ? String(studioId) : rjBackend.getStudioId();
+            if (rjBackend.isEnabled() && sid) {
+              chatSocket.sendGift(sid, gift.id, 'RJ');
+              void RjApi.sendGift(sid, { username: 'RJ', giftId: gift.id, giftLabel: gift.label }).catch(() => {});
+            }
+            const giftMsg: Message = {
+              id: Date.now(),
+              user: 'RJ',
+              text,
+              time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+              system: false,
+              likeCount: 0,
+              isLiked: false,
+              avatar: 'R',
+              isVIP: true,
+              giftAmount: 1,
+            };
+            chat.setMessages((prev: Message[]) => [...prev, giftMsg]);
+            notifications.addNotification('system', `🎁 RJ sent ${gift.label} to everyone!`);
+            setTimeout(() => chat.flatListRef.current?.scrollToEnd({ animated: true }), 100);
+          },
+          onSendSticker: (sticker) => {
+            const text = sticker.emoji.repeat(3);
+            const sid = studioId ? String(studioId) : rjBackend.getStudioId();
+            if (rjBackend.isEnabled() && sid) {
+              chatSocket.sendSticker(sid, sticker.name, 'RJ');
+              void RjApi.sendEmoji(sid, {
+                username: 'RJ',
+                emojiId: sticker.name.toLowerCase().replace(/\s+/g, '-'),
+                emoji: sticker.emoji,
+                label: sticker.name,
+              }).catch(() => {});
+            }
+            const stickerMsg: Message = {
+              id: Date.now(),
+              user: 'RJ',
+              text,
+              time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+              system: false,
+              likeCount: 0,
+              isLiked: false,
+              avatar: 'R',
+              isVIP: true,
+            };
+            chat.setMessages((prev: Message[]) => [...prev, stickerMsg]);
+            notifications.addNotification('system', `🎨 RJ sent a ${sticker.name} sticker!`);
+            setTimeout(() => chat.flatListRef.current?.scrollToEnd({ animated: true }), 100);
+          },
         }}
       />
     </View>
