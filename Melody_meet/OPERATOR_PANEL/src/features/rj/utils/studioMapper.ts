@@ -3,6 +3,7 @@ import type { RjStudioBundle } from '../../../services/api/rjApi';
 import { RjApi } from '../../../services/api/rjApi';
 import type { Message, PlaylistTrack } from '../types';
 import { applyPlaylistStudioFields } from './mixerMapper';
+import { isDesktop } from '../../../utils/platform';
 
 const formatTime = (value: unknown) => {
   if (!value) return '';
@@ -23,7 +24,7 @@ const mapChatMessage = (m: Record<string, unknown>, index: number): Message => (
   isVIP: Boolean(m.isVIP),
 });
 
-export function hydrateRjStoreFromBundle(bundle: RjStudioBundle) {
+export async function hydrateRjStoreFromBundle(bundle: RjStudioBundle) {
   const studio = bundle.studio || {};
   const dual = (studio.dualPlayer as Record<string, unknown>) || {};
 
@@ -65,9 +66,23 @@ export function hydrateRjStoreFromBundle(bundle: RjStudioBundle) {
   const rawB = dual.playerBTrack as Record<string, unknown> | null | undefined;
   
   // Requirement 3: Prevent UI from showing loaded unless deck actually has it loaded
-  const { audioEngineManager } = require('../../../services/audioEngine/core/AudioEngineManager');
-  const deckAHasLoaded = audioEngineManager.getDeck('A').hasLoadedTrack();
-  const deckBHasLoaded = audioEngineManager.getDeck('B').hasLoadedTrack();
+  let deckAHasLoaded = false;
+  let deckBHasLoaded = false;
+  
+  if (isDesktop()) {
+    try {
+      const snap = await (window as any).audio.getPlaybackSnapshot();
+      deckAHasLoaded = snap?.deckA?.isLoaded || false;
+      deckBHasLoaded = snap?.deckB?.isLoaded || false;
+    } catch {
+      deckAHasLoaded = false;
+      deckBHasLoaded = false;
+    }
+  } else {
+    const { audioEngineManager } = require('../../../services/audioEngine/core/AudioEngineManager');
+    deckAHasLoaded = audioEngineManager.getDeck('A').hasLoadedTrack();
+    deckBHasLoaded = audioEngineManager.getDeck('B').hasLoadedTrack();
+  }
 
   // Preserve audioUrl from the existing store track — the backend never stores
   // local file:/// URIs, so a write-back from the server would silently strip
@@ -148,15 +163,29 @@ export function mapPlaylistItemFromApi(item: Record<string, unknown>, sortIndex?
   };
 }
 
-export function applyStudioRecordToStore(studio: Record<string, unknown>) {
+export async function applyStudioRecordToStore(studio: Record<string, unknown>) {
   const dual = (studio.dualPlayer as Record<string, unknown>) || {};
 
   const rawA2 = dual.playerATrack as Record<string, unknown> | null | undefined;
   const rawB2 = dual.playerBTrack as Record<string, unknown> | null | undefined;
 
-  const { audioEngineManager } = require('../../../services/audioEngine/core/AudioEngineManager');
-  const deckAHasLoaded2 = audioEngineManager.getDeck('A').hasLoadedTrack();
-  const deckBHasLoaded2 = audioEngineManager.getDeck('B').hasLoadedTrack();
+  let deckAHasLoaded2 = false;
+  let deckBHasLoaded2 = false;
+
+  if (isDesktop()) {
+    try {
+      const snap = await (window as any).audio.getPlaybackSnapshot();
+      deckAHasLoaded2 = snap?.deckA?.isLoaded || false;
+      deckBHasLoaded2 = snap?.deckB?.isLoaded || false;
+    } catch {
+      deckAHasLoaded2 = false;
+      deckBHasLoaded2 = false;
+    }
+  } else {
+    const { audioEngineManager } = require('../../../services/audioEngine/core/AudioEngineManager');
+    deckAHasLoaded2 = audioEngineManager.getDeck('A').hasLoadedTrack();
+    deckBHasLoaded2 = audioEngineManager.getDeck('B').hasLoadedTrack();
+  }
 
   // Preserve audioUrl from the existing store track — the backend never stores
   // local file:/// URIs, so a write-back from the server would silently strip

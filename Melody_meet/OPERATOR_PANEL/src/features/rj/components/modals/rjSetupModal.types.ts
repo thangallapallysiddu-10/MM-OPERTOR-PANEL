@@ -43,6 +43,7 @@ export interface RjPlaylistBridge {
   onRemoveSong: (id: number) => void;
   onPausePlaylist: () => void;
   onResumePlaylist: () => void;
+ 
   onStopPlaylist: () => void;
   onSkipToNext: () => void;
   onStartPlaylist: () => void;

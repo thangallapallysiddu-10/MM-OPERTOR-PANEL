@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { useAppStore } from '../../../store/useAppStore';
-import { audioEngineManager } from '../../../services/audioEngine/core/AudioEngineManager';
+import { isDesktop } from '../../../utils/platform';
 import { sessionManager, RjSessionData } from '../services/SessionProvider';
 import { useOperator } from '../../../context/OperatorContext';
 
@@ -27,10 +27,18 @@ export const useRjSessionPersistence = () => {
         const hadActiveSession = Boolean(storeState.playerATrack || storeState.playerBTrack);
 
         // 2. Clear Runtime Deck State
-        const deckA = audioEngineManager.getDeck('A');
-        const deckB = audioEngineManager.getDeck('B');
-        deckA.unloadTrack();
-        deckB.unloadTrack();
+        if (isDesktop()) {
+          try {
+            await (window as any).audio.unloadDeck('A');
+            await (window as any).audio.unloadDeck('B');
+          } catch { /* ignore */ }
+        } else {
+          const { audioEngineManager } = require('../../../services/audioEngine/core/AudioEngineManager');
+          const deckA = audioEngineManager.getDeck('A');
+          const deckB = audioEngineManager.getDeck('B');
+          deckA.unloadTrack();
+          deckB.unloadTrack();
+        }
         
         // 3. Clear App Store — including localPlayback so the Now Playing
         //    display never shows a stale track from a previous session.
@@ -98,12 +106,30 @@ export const useRjSessionPersistence = () => {
   // 2. Build Session Data — tracks are intentionally excluded.
   // Local file:/// URIs are meaningless after a page reload; the audio engine
   // will have no audio loaded. Only FX state is worth persisting.
-  const buildSessionData = (): RjSessionData => {
-    const deckA = audioEngineManager.getDeck('A');
-    const deckB = audioEngineManager.getDeck('B');
+  const buildSessionData = async (): Promise<RjSessionData> => {
+    let fxA: any = null;
+    let fxB: any = null;
 
-    const stateA = deckA.getState();
-    const stateB = deckB.getState();
+    if (isDesktop()) {
+      try {
+        const dspSnap = await (window as any).audio.getDSPSnapshot();
+        // Fallback to defaults if missing
+        fxA = dspSnap?.deckA || { highPassFilter: 20, lowPassFilter: 20000, eqBass: 50, eqTreble: 50, echoDelay: 0 };
+        fxB = dspSnap?.deckB || { highPassFilter: 20, lowPassFilter: 20000, eqBass: 50, eqTreble: 50, echoDelay: 0 };
+      } catch {
+        fxA = { highPassFilter: 20, lowPassFilter: 20000, eqBass: 50, eqTreble: 50, echoDelay: 0 };
+        fxB = { highPassFilter: 20, lowPassFilter: 20000, eqBass: 50, eqTreble: 50, echoDelay: 0 };
+      }
+    } else {
+      const { audioEngineManager } = require('../../../services/audioEngine/core/AudioEngineManager');
+      const deckA = audioEngineManager.getDeck('A');
+      const deckB = audioEngineManager.getDeck('B');
+
+      const stateA = deckA.getState();
+      const stateB = deckB.getState();
+      fxA = stateA.fx;
+      fxB = stateB.fx;
+    }
 
     return {
       version: 1,
@@ -112,7 +138,7 @@ export const useRjSessionPersistence = () => {
         track: null,
         audioUrl: null,
         volume: 75,
-        fx: stateA.fx,
+        fx: fxA,
         playbackPosition: 0,
         isLoaded: false,
         wasPlaying: false,
@@ -121,7 +147,7 @@ export const useRjSessionPersistence = () => {
         track: null,
         audioUrl: null,
         volume: 75,
-        fx: stateB.fx,
+        fx: fxB,
         playbackPosition: 0,
         isLoaded: false,
         wasPlaying: false,
@@ -130,10 +156,10 @@ export const useRjSessionPersistence = () => {
   };
 
   // 3. Save Logic
-  const saveSession = (immediate = false) => {
+  const saveSession = async (immediate = false) => {
     if (!studioId || !isHydrated.current) return;
 
-    const data = buildSessionData();
+    const data = await buildSessionData();
     const serialized = JSON.stringify(data);
 
     // Prevent redundant saves
@@ -165,13 +191,25 @@ export const useRjSessionPersistence = () => {
   useEffect(() => {
     const handleFxUpdated = () => saveSession(false); // Debounced save on FX change
     
-    audioEngineManager.getDeck('A').events.on('fxUpdated', handleFxUpdated);
-    audioEngineManager.getDeck('B').events.on('fxUpdated', handleFxUpdated);
+    if (isDesktop()) {
+      if (typeof window !== 'undefined' && (window as any).audio?.on) {
+        (window as any).audio.on('dsp:changed', handleFxUpdated);
+      }
+      return () => {
+        if (typeof window !== 'undefined' && (window as any).audio?.off) {
+          (window as any).audio.off('dsp:changed', handleFxUpdated);
+        }
+      };
+    } else {
+      const { audioEngineManager } = require('../../../services/audioEngine/core/AudioEngineManager');
+      audioEngineManager.getDeck('A').events.on('fxUpdated', handleFxUpdated);
+      audioEngineManager.getDeck('B').events.on('fxUpdated', handleFxUpdated);
 
-    return () => {
-      audioEngineManager.getDeck('A').events.off('fxUpdated', handleFxUpdated);
-      audioEngineManager.getDeck('B').events.off('fxUpdated', handleFxUpdated);
-    };
+      return () => {
+        audioEngineManager.getDeck('A').events.off('fxUpdated', handleFxUpdated);
+        audioEngineManager.getDeck('B').events.off('fxUpdated', handleFxUpdated);
+      };
+    }
   }, []);
 
   // 5. Position Interval Save

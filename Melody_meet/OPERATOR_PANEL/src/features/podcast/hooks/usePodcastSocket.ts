@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Alert } from 'react-native';
 import { podcastSocket, type PodcastChatMessage } from '../../../services/socketService';
 import { useAppStore } from '../../../store/useAppStore';
@@ -19,6 +19,46 @@ export function usePodcastSocket({
   const [liveChatMessages, setLiveChatMessages] = useState<PodcastChatMessage[]>([]);
   const [liveChatInput, setLiveChatInput] = useState('');
 
+  // ─── CLEAR CHAT ────────────────────────────────────────────────────────────
+  const clearLiveChat = useCallback(() => {
+    setLiveChatMessages([]);
+  }, []);
+
+  // ─── SEND MESSAGE ──────────────────────────────────────────────────────────
+  const sendHostChatMessage = () => {
+    const text = liveChatInput.trim();
+    if (!text) return;
+
+    // Create local message immediately (Optimistic UI Update)
+    // This guarantees messages appear in your list layout instantly
+    const newMessage: PodcastChatMessage = {
+      id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`, // Bulletproof unique ID
+      senderName: userName || 'Host',
+      senderRole: 'host',
+      text: text,
+      createdAt: new Date().toISOString(),
+    };
+
+    setLiveChatMessages(prev => [...prev, newMessage]);
+    setLiveChatInput(''); // Instantly clear input field for fluid UX
+
+    // ─── SOCKET SYSTEM SYNC ──────────────────────────────────────────────────
+    // If the room isn't live or connection hasn't finished handshake, gracefully skip server delivery
+    if (!isLive) {
+      console.log('Chat local-only: Studio session is not Live.');
+      return;
+    }
+
+    const roomId = extractRoomId(roomLink);
+    if (!roomId || !podcastSocket.isConnected()) {
+      console.warn('Chat Delivery Skipped: Socket connection offline.');
+      return;
+    }
+
+    // Deliver payload out to connected peers via backend socket channel
+    podcastSocket.hostChatMessage(roomId, userName, text);
+  };
+
   useEffect(() => {
     if (!isLive || !roomLink) {
       podcastSocket.disconnect();
@@ -35,22 +75,24 @@ export function usePodcastSocket({
       await podcastSocket.connect();
       podcastSocket.hostJoin(roomId);
 
+      // ─── ROOM SNAPSHOT ──────────────────────────────────────────────────────
       cleanups.push(
-        podcastSocket.onRoomSnapshot((snapshot: {
-          viewerCount?: number;
-          chatHistory?: PodcastChatMessage[];
-        }) => {
-          updatePodcastState({ liveViewers: snapshot.viewerCount || 0 });
-          setLiveChatMessages(snapshot.chatHistory || []);
+        (podcastSocket as any).onRoomSnapshot((snapshot: any) => {
+          updatePodcastState({ liveViewers: snapshot?.viewerCount || 0 });
+          if (snapshot?.chatHistory) {
+            setLiveChatMessages(snapshot.chatHistory);
+          }
         }) || (() => {})
       );
 
+      // ─── CHAT HISTORY ───────────────────────────────────────────────────────
       cleanups.push(
         podcastSocket.onChatHistory(({ messages }) => {
           setLiveChatMessages(messages || []);
         }) || (() => {})
       );
 
+      // ─── INCOMING CHAT MESSAGES ─────────────────────────────────────────────
       cleanups.push(
         podcastSocket.onChatMessage((message) => {
           setLiveChatMessages((prev) => {
@@ -60,18 +102,21 @@ export function usePodcastSocket({
         }) || (() => {})
       );
 
+      // ─── ERROR HANDLING ─────────────────────────────────────────────────────
       cleanups.push(
         podcastSocket.onChatError(({ message }) => {
           Alert.alert('Chat Error', message || 'Could not send chat message');
         }) || (() => {})
       );
 
+      // ─── VIEWER METRICS ─────────────────────────────────────────────────────
       cleanups.push(
         podcastSocket.onViewerCount(({ viewerCount }) => {
           updatePodcastState({ liveViewers: Number(viewerCount || 0) });
         }) || (() => {})
       );
 
+      // ─── STREAM LIFECYCLE ────────────────────────────────────────────────────
       cleanups.push(
         podcastSocket.onLiveEnded(() => {
           updatePodcastState({
@@ -89,6 +134,7 @@ export function usePodcastSocket({
         }) || (() => {})
       );
 
+      // ─── RTC GUEST SLOTS & CHANNELS ─────────────────────────────────────────
       cleanups.push(
         podcastSocket.onSlotUpdated((payload) => {
           updateGuestSlot(payload.slotId, {
@@ -154,6 +200,7 @@ export function usePodcastSocket({
         }) || (() => {})
       );
 
+      // ─── WEBRTC SIGNALING PASSES ────────────────────────────────────────────
       cleanups.push(
         podcastSocket.onWebRtcOffer((payload) => {
           updatePodcastState({ pendingWebRtcSignal: { ...payload, type: 'offer' } });
@@ -181,24 +228,11 @@ export function usePodcastSocket({
     };
   }, [isLive, roomLink]);
 
-  const sendHostChatMessage = () => {
-    const text = liveChatInput.trim();
-    if (!text || !isLive) return;
-
-    const roomId = extractRoomId(roomLink);
-    if (!roomId || !podcastSocket.isConnected()) {
-      Alert.alert('Chat Offline', 'Live chat is not connected yet.');
-      return;
-    }
-
-    podcastSocket.hostChatMessage(roomId, userName, text);
-    setLiveChatInput('');
-  };
-
   return {
     liveChatMessages,
     liveChatInput,
     setLiveChatInput,
     sendHostChatMessage,
+    clearLiveChat,
   };
 }

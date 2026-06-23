@@ -63,8 +63,11 @@ export const useRecording = () => {
     };
   }, [isRecording, activeMic?.active]);
 
-  // Recording timer
+  // Recording timer (browser fallback)
   useEffect(() => {
+    // If native recording is active, we rely on the native `recording:duration` event instead
+    if (typeof window !== 'undefined' && (window as any).audio?.startRecording) return;
+    
     if (!isRecording) {
       if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
       return;
@@ -78,6 +81,77 @@ export const useRecording = () => {
     };
   }, [isRecording]);
 
+  // Native recording events
+  useEffect(() => {
+    if (typeof window === 'undefined' || !(window as any).audio?.on) return;
+
+    const handleDuration = (data: any) => {
+      updatePodcastState({ recordingSeconds: Math.floor(data.duration) });
+    };
+
+    const handleFileReady = async (data: any) => {
+      const mins = Math.floor(data.duration / 60);
+      const secs = Math.floor(data.duration % 60);
+      const durationStr = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+      
+      const filename = data.outputFile.split(/[\\/]/).pop() || `recording_${Date.now()}.wav`;
+      const sizeMBStr = `${(data.fileSize / (1024 * 1024)).toFixed(1)} MB`;
+      
+      const fileObj = {
+        uri: `file://${data.outputFile}`,
+        name: filename,
+        type: 'audio/wav'
+      };
+
+      try {
+        let backendId = Date.now();
+        let uri = fileObj.uri;
+        
+        const formData = new FormData();
+        formData.append('file', fileObj as any);
+        formData.append('duration', durationStr);
+        formData.append('durationSeconds', Math.floor(data.duration).toString());
+        
+        const saved = await PodcastApi.uploadRecording(formData);
+        if (saved?.id) backendId = saved.id;
+        if (saved?.fileUrl) uri = saved.fileUrl;
+
+        const newRecording: Recording = {
+          id: backendId,
+          name: filename,
+          duration: durationStr,
+          size: sizeMBStr,
+          uri,
+        };
+
+        addRecording(newRecording);
+      } catch (err) {
+        console.error("Native upload failed", err);
+        const newRecording: Recording = {
+          id: Date.now(),
+          name: filename,
+          duration: durationStr,
+          size: sizeMBStr,
+          uri: fileObj.uri,
+        };
+        addRecording(newRecording);
+      }
+
+      updatePodcastState({
+        isRecording: false,
+        showAfterRecordingOptions: true,
+      });
+    };
+
+    (window as any).audio.on('recording:duration', handleDuration);
+    (window as any).audio.on('recording:fileReady', handleFileReady);
+
+    return () => {
+      (window as any).audio.off('recording:duration', handleDuration);
+      (window as any).audio.off('recording:fileReady', handleFileReady);
+    };
+  }, []);
+
   const selectMic = (micId: number) => {
     setActiveMic(micId);
   };
@@ -88,7 +162,10 @@ export const useRecording = () => {
 
   const startRecording = async () => {
     try {
-      if (Platform.OS === 'web') {
+      if (typeof window !== 'undefined' && (window as any).audio?.startRecording) {
+        // Native desktop recording
+        await (window as any).audio.startRecording();
+      } else if (Platform.OS === 'web') {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         setMediaStream(stream);
 
@@ -167,7 +244,11 @@ export const useRecording = () => {
         });
       };
 
-      if (Platform.OS === 'web') {
+      if (typeof window !== 'undefined' && (window as any).audio?.stopRecording) {
+        // Native desktop
+        await (window as any).audio.stopRecording();
+        // UI updates will be handled by the recording:fileReady event listener
+      } else if (Platform.OS === 'web') {
         if (mediaRecorder) {
           mediaRecorder.onstop = async () => {
             const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' });

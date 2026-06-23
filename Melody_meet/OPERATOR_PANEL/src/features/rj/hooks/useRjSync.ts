@@ -12,7 +12,7 @@ import type { RjStudioBundle } from '../../../services/api/rjApi';
 import { useAppStore } from '../../../store/useAppStore';
 import { syncTimerTick, syncPlaylistTick } from '../services/rjApiSync';
 import { mapMixerChannelsFromApi } from '../utils/mixerMapper';
-import { audioEngineManager } from '../../../services/audioEngine/core/AudioEngineManager';
+import { isDesktop } from '../../../utils/platform';
 
 export { syncDualPlayer as syncDualPlayerToBackend } from '../services/rjApiSync';
 
@@ -53,7 +53,7 @@ export function useRjSync(
         const bundle = await RjApi.getStudio(sid);
         if (cancelled) return;
 
-        hydrateRjStoreFromBundle(bundle);
+        await hydrateRjStoreFromBundle(bundle);
         rjBackend.setSession(sid, true);
         setBackendOnline(true);
 
@@ -63,26 +63,37 @@ export function useRjSync(
         chatSocket.joinStudio(sid, 'RJ');
 
         cleanups.push(
-          rjSocket.onStudioState((payload) => {
+          rjSocket.onStudioState(async (payload) => {
             if (payload && typeof payload === 'object') {
-              hydrateRjStoreFromBundle(payload as RjStudioBundle);
+              await hydrateRjStoreFromBundle(payload as RjStudioBundle);
             }
           }) || (() => {})
         );
 
         cleanups.push(
-          rjSocket.onDualPlayerUpdated((payload) => {
+          rjSocket.onDualPlayerUpdated(async (payload) => {
             const data = payload as { dualPlayer?: unknown; currentTrack?: unknown } | null;
             const patch: Record<string, unknown> = {};
             if (data?.dualPlayer) {
               const dual = data.dualPlayer as Record<string, unknown>;
 
-              // FIX 2: Guard track updates with deckHasLoaded.
-              // Without this guard, socket payloads blindly wrote track metadata
-              // into the store even when the DeckEngine had no audio loaded,
-              // causing phantom tracks to appear in the wrong deck.
-              const deckALoaded = audioEngineManager.getDeck('A').hasLoadedTrack();
-              const deckBLoaded = audioEngineManager.getDeck('B').hasLoadedTrack();
+              let deckALoaded = false;
+              let deckBLoaded = false;
+
+              if (isDesktop()) {
+                try {
+                  const snap = await (window as any).audio.getPlaybackSnapshot();
+                  deckALoaded = snap?.deckA?.isLoaded || false;
+                  deckBLoaded = snap?.deckB?.isLoaded || false;
+                } catch {
+                  deckALoaded = false;
+                  deckBLoaded = false;
+                }
+              } else {
+                const { audioEngineManager } = require('../../../services/audioEngine/core/AudioEngineManager');
+                deckALoaded = audioEngineManager.getDeck('A').hasLoadedTrack();
+                deckBLoaded = audioEngineManager.getDeck('B').hasLoadedTrack();
+              }
 
               const rawA = dual.playerATrack as Record<string, unknown> | null | undefined;
               const rawB = dual.playerBTrack as Record<string, unknown> | null | undefined;
@@ -260,7 +271,7 @@ export function useRjSync(
     if (!sid || !rjBackend.isEnabled()) return;
     try {
       const bundle = await RjApi.getStudio(sid);
-      hydrateRjStoreFromBundle(bundle);
+      await hydrateRjStoreFromBundle(bundle);
     } catch (err) {
       console.warn('[useRjSync] refresh failed:', (err as Error).message);
     }

@@ -46,6 +46,7 @@ export const useLiveStream = () => {
   const [mediaStream, setMediaStream] = useState<any>(null);
   const [audioContext, setAudioContext] = useState<any>(null);
   const [isMicActive, setIsMicActive] = useState(false);
+  const [broadcastStats, setBroadcastStats] = useState<any>(null);
 
   // Get values from store (these persist across navigation)
   const isLive = podcast.isLive || false;
@@ -98,6 +99,40 @@ export const useLiveStream = () => {
       }));
       store.setGuestSlots(seededSlots);
     }
+  }, []);
+
+  // Native broadcast events
+  useEffect(() => {
+    if (typeof window === 'undefined' || !(window as any).audio?.on) return;
+
+    const handleBroadcastStats = (data: any) => {
+      setBroadcastStats(data);
+    };
+
+    const handleBroadcastStarted = () => {
+      console.log('[Native] Broadcast started');
+    };
+
+    const handleBroadcastStopped = () => {
+      setBroadcastStats(null);
+      console.log('[Native] Broadcast stopped');
+    };
+
+    const handleBroadcastError = (data: any) => {
+      console.warn('[Native] Broadcast error:', data?.error);
+    };
+
+    (window as any).audio.on('broadcast:stats', handleBroadcastStats);
+    (window as any).audio.on('broadcast:started', handleBroadcastStarted);
+    (window as any).audio.on('broadcast:stopped', handleBroadcastStopped);
+    (window as any).audio.on('broadcast:error', handleBroadcastError);
+
+    return () => {
+      (window as any).audio.off('broadcast:stats', handleBroadcastStats);
+      (window as any).audio.off('broadcast:started', handleBroadcastStarted);
+      (window as any).audio.off('broadcast:stopped', handleBroadcastStopped);
+      (window as any).audio.off('broadcast:error', handleBroadcastError);
+    };
   }, []);
 
   // Live timers
@@ -200,6 +235,19 @@ export const useLiveStream = () => {
       const roomId = roomIdMatch ? roomIdMatch[1] : Math.random().toString(36).substring(2, 10).toUpperCase();
       const activeRoomLink = roomLink || buildGuestRoomLink(roomId);
 
+      // Start native broadcast if available (desktop)
+      if (typeof window !== 'undefined' && (window as any).audio?.startBroadcast) {
+        try {
+          await (window as any).audio.startBroadcast({
+            server: activeRoomLink,
+            streamKey: roomId,
+            bitrate: 128,
+          });
+        } catch (err) {
+          console.warn('[Native] startBroadcast failed, continuing with web fallback:', err);
+        }
+      }
+
       // Persist live session to backend.
       // This MUST succeed — if no backend session row exists, guests cannot join
       // (joinGuestSlot enforces status='live') and the operator UI would be out
@@ -270,6 +318,15 @@ export const useLiveStream = () => {
       if (audioContext) {
         audioContext.close();
         setAudioContext(null);
+      }
+
+      // Stop native broadcast if available (desktop)
+      if (typeof window !== 'undefined' && (window as any).audio?.stopBroadcast) {
+        try {
+          await (window as any).audio.stopBroadcast();
+        } catch (err) {
+          console.warn('[Native] stopBroadcast failed:', err);
+        }
       }
 
       // Persist stop to backend (best-effort)
@@ -383,5 +440,6 @@ export const useLiveStream = () => {
     setLiveSetupStep,
     // Exposed for usePeerConnections — operator mic stream used as the host audio track
     mediaStream,
+    broadcastStats,
   };
 };

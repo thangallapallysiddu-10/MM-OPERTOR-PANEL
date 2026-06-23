@@ -8,7 +8,7 @@ import { trackLibrary } from '../constants';
 import { useAppStore } from '../../../store/useAppStore';
 import { syncDualPlayer } from '../services/rjApiSync';
 import { applyStudioRecordToStore } from '../utils/studioMapper';
-import { audioEngineManager } from '../../../services/audioEngine/core/AudioEngineManager';
+import { isDesktop } from '../../../utils/platform';
 interface UsePlayerProps {
   setCurrentTrack: (track: Track) => void;
   setLocalCurrentTrack: (track: Track) => void;
@@ -30,6 +30,42 @@ const emptyTrack: Track = {
   fx: { echo: 0, flanger: 0, loop: 0, reverse: 0, hotCue: 0 }
 };
 
+// Helper to abstract audio implementation behind the expo-av Sound interface
+const createDesktopAudioAdapter = (deckId: 'A' | 'B') => ({
+  playAsync: async () => (window as any).audio.play(deckId),
+  pauseAsync: async () => (window as any).audio.pause(deckId),
+  stopAsync: async () => (window as any).audio.stop(deckId),
+  // Desktop unload must call window.audio.unloadDeck — never a no-op
+  unloadAsync: async () => {
+    if ((window as any).audio?.unloadDeck) {
+      await (window as any).audio.unloadDeck(deckId);
+    }
+  },
+  setIsMutedAsync: async (_muted: boolean) => {},
+  setVolumeAsync: async (_volume: number) => {},
+  setPositionAsync: async (ms: number) => (window as any).audio.seek(deckId, ms / 1000),
+});
+
+const createBrowserAudioAdapter = (deckId: 'A' | 'B') => {
+  const { audioEngineManager } = require('../../../services/audioEngine/core/AudioEngineManager');
+  const deck = audioEngineManager.getDeck(deckId);
+  return {
+    playAsync: async () => deck.play(),
+    pauseAsync: async () => deck.pause(),
+    stopAsync: async () => deck.stop(),
+    unloadAsync: async () => deck.unloadTrack(),
+    setIsMutedAsync: async (muted: boolean) => {
+       const elem = deck.getMediaElement();
+       if (elem) elem.muted = muted;
+    },
+    setVolumeAsync: async (volume: number) => {
+       const elem = deck.getMediaElement();
+       if (elem) elem.volume = Math.max(0, Math.min(1, volume));
+    },
+    setPositionAsync: async (ms: number) => deck.seek(ms / 1000)
+  };
+};
+
 export const usePlayer = ({ setCurrentTrack, setLocalCurrentTrack, addNotification }: UsePlayerProps) => {
   const { rjStudio, updateRjStudioState } = useAppStore();
   
@@ -45,8 +81,15 @@ export const usePlayer = ({ setCurrentTrack, setLocalCurrentTrack, addNotificati
   const soundARef = useRef<Audio.Sound | any | null>(null);
   const soundBRef = useRef<Audio.Sound | any | null>(null);
 
-  // Sync mute state for both sounds
+  // Sync mute state — dispatch to native mixer on desktop, adapter fallback otherwise
   useEffect(() => {
+    if (typeof window !== 'undefined' && (window as any).audio?.muteDeck) {
+      try {
+        (window as any).audio.muteDeck('A', isLocalAudioMuted).catch(() => {});
+        (window as any).audio.muteDeck('B', isLocalAudioMuted).catch(() => {});
+      } catch { /* engine not yet initialized */ }
+      return;
+    }
     if (soundARef.current) soundARef.current.setIsMutedAsync(isLocalAudioMuted).catch(() => {});
     if (soundBRef.current) soundBRef.current.setIsMutedAsync(isLocalAudioMuted).catch(() => {});
   }, [isLocalAudioMuted]);
@@ -57,96 +100,81 @@ export const usePlayer = ({ setCurrentTrack, setLocalCurrentTrack, addNotificati
     if (!isWeb) return;
 
     if (!soundARef.current) {
-      const deckA = audioEngineManager.getDeck('A');
-      soundARef.current = {
-        playAsync: async () => deckA.play(),
-        pauseAsync: async () => deckA.pause(),
-        stopAsync: async () => deckA.stop(),
-        unloadAsync: async () => deckA.unloadTrack(),
-        setIsMutedAsync: async (muted: boolean) => {
-           const elem = deckA.getMediaElement();
-           if (elem) elem.muted = muted;
-        },
-        setVolumeAsync: async (volume: number) => {
-           const elem = deckA.getMediaElement();
-           if (elem) elem.volume = Math.max(0, Math.min(1, volume));
-        }
-      };
+      if (typeof window !== 'undefined' && (window as any).audio) {
+        soundARef.current = createDesktopAudioAdapter('A');
+      } else {
+        soundARef.current = createBrowserAudioAdapter('A');
+      }
     }
     
     if (!soundBRef.current) {
-      const deckB = audioEngineManager.getDeck('B');
-      soundBRef.current = {
-        playAsync: async () => deckB.play(),
-        pauseAsync: async () => deckB.pause(),
-        stopAsync: async () => deckB.stop(),
-        unloadAsync: async () => deckB.unloadTrack(),
-        setIsMutedAsync: async (muted: boolean) => {
-           const elem = deckB.getMediaElement();
-           if (elem) elem.muted = muted;
-        },
-        setVolumeAsync: async (volume: number) => {
-           const elem = deckB.getMediaElement();
-           if (elem) elem.volume = Math.max(0, Math.min(1, volume));
-        }
-      };
+      if (typeof window !== 'undefined' && (window as any).audio) {
+        soundBRef.current = createDesktopAudioAdapter('B');
+      } else {
+        soundBRef.current = createBrowserAudioAdapter('B');
+      }
     }
   }, []);
 
   const loadSound = async (track: Track | null, isPlayerA: boolean) => {
     const ref = isPlayerA ? soundARef : soundBRef;
     const chainId = isPlayerA ? 'A' : 'B';
-    
-    if (ref.current) {
-      await ref.current.stopAsync();
-      await ref.current.unloadAsync();
+
+    // Foolproof web detection used throughout this function
+    const isWeb = Platform.OS === 'web' || (typeof window !== 'undefined' && typeof window.document !== 'undefined');
+    const hasDesktopEngine = isWeb && typeof window !== 'undefined' && !!(window as any).audio;
+
+    // Unload the previous track from this deck before loading a new one.
+    // Desktop: call window.audio.unloadDeck directly — never touch soundRef for Expo AV cleanup.
+    // Browser/native: delegate to the existing adapter / Expo AV object.
+    if (hasDesktopEngine) {
+      if ((window as any).audio?.unloadDeck) {
+        try { await (window as any).audio.unloadDeck(chainId); } catch { /* engine not yet ready */ }
+      }
+      ref.current = null;
+    } else if (ref.current) {
+      // Browser adapter or Expo AV Sound object — safe to call stop+unload here
+      try { await ref.current.stopAsync(); } catch { /* ignore */ }
+      try { await ref.current.unloadAsync(); } catch { /* ignore */ }
       ref.current = null;
     }
-    
+
     if (!track) {
       return;
     }
-    
+
     const url = track.audioUrl || (track as any).fileUrl;
 
     if (!url) {
       console.warn("LOADSOUND: track.audioUrl and fileUrl are UNDEFINED for", track.title, "— no audio will load");
       return;
     }
-    
+
     try {
-        // Foolproof web detection: Use DeckEngine if Platform is web OR if we are in a browser environment
-        const isWeb = Platform.OS === 'web' || (typeof window !== 'undefined' && typeof window.document !== 'undefined');
-        
-        if (isWeb) {
+      if (isWeb) {
+        if (hasDesktopEngine) {
+          // Desktop path: delegate entirely to the native C++ AudioEngine.
+          // Never create an Expo AV Sound object here.
+          await (window as any).audio.loadDeck(chainId, url);
+          ref.current = createDesktopAudioAdapter(chainId);
+        } else {
+          // Browser path: use the Web Audio DeckEngine adapter.
+          const { audioEngineManager } = require('../../../services/audioEngine/core/AudioEngineManager');
           const deck = audioEngineManager.getDeck(chainId);
           await deck.loadTrack(url);
-          
-          ref.current = {
-            playAsync: async () => deck.play(),
-            pauseAsync: async () => deck.pause(),
-            stopAsync: async () => deck.stop(),
-            unloadAsync: async () => deck.unloadTrack(),
-            setIsMutedAsync: async (muted: boolean) => {
-               const elem = deck.getMediaElement();
-               if (elem) elem.muted = muted;
-            },
-            setVolumeAsync: async (volume: number) => {
-               const elem = deck.getMediaElement();
-               if (elem) elem.volume = Math.max(0, Math.min(1, volume));
-            }
-          };
-        } else {
-          // Native platforms use expo-av
-          const { sound } = await Audio.Sound.createAsync(
-            { uri: url },
-            { shouldPlay: false, isMuted: isLocalAudioMuted }
-          );
-          ref.current = sound;
+          ref.current = createBrowserAudioAdapter(chainId as 'A' | 'B');
         }
-      } catch (err) {
-        console.warn("Failed to load sound:", err);
+      } else {
+        // Native mobile path: Expo AV only — never reached on desktop.
+        const { sound } = await Audio.Sound.createAsync(
+          { uri: url },
+          { shouldPlay: false, isMuted: isLocalAudioMuted }
+        );
+        ref.current = sound;
       }
+    } catch (err) {
+      console.warn("Failed to load sound:", err);
+    }
   };
   
   const setPlayerA = (track: Track | null) => {
@@ -175,17 +203,16 @@ export const usePlayer = ({ setCurrentTrack, setLocalCurrentTrack, addNotificati
   const crossfadeValue = rjStudio.crossfadeValue ?? 50;
   const setCrossfadeValue = (value: number) => updateRjStudioState({ crossfadeValue: value });
 
-  // Apply Crossfade
+  // Apply Crossfade — React sends intent only; native Mixer owns the math.
   useEffect(() => {
-    // 1. WebAudio Hardware Crossfader (Broadcast Grade Constant-Power)
-    const crossfader = audioEngineManager.getCrossfader();
-    if (crossfader) {
-      crossfader.setCrossfade(crossfadeValue);
-      // We do NOT modify setVolumeAsync here on Web because it alters pre-DSP source volume.
+    if (typeof window !== 'undefined' && (window as any).audio?.setCrossfade) {
+      try {
+        (window as any).audio.setCrossfade(crossfadeValue).catch(() => {});
+      } catch { /* engine not yet initialized */ }
       return;
     }
 
-    // 2. Native Fallback (Linear Math for expo-av)
+    // Legacy fallback for non-desktop platforms (expo-av linear math)
     const volA = crossfadeValue <= 50 ? 1 : Math.max(0, 1 - ((crossfadeValue - 50) / 50));
     const volB = crossfadeValue >= 50 ? 1 : Math.max(0, crossfadeValue / 50);
 
@@ -214,14 +241,34 @@ export const usePlayer = ({ setCurrentTrack, setLocalCurrentTrack, addNotificati
 
   // Sync actual audio playback with global store (for socket updates)
   useEffect(() => {
-    if (soundARef.current) {
+    const hasDesktopEngine = typeof window !== 'undefined' && !!(window as any).audio;
+    if (hasDesktopEngine) {
+      try {
+        if (playerA) {
+          if (isPlayingA) (window as any).audio.play('A').catch(() => {});
+          else (window as any).audio.pause('A').catch(() => {});
+        }
+      } catch { /* engine not yet ready */ }
+      return;
+    }
+    if (soundARef.current && playerA) {
       if (isPlayingA) void soundARef.current.playAsync();
       else void soundARef.current.pauseAsync();
     }
   }, [isPlayingA, playerA]);
 
   useEffect(() => {
-    if (soundBRef.current) {
+    const hasDesktopEngine = typeof window !== 'undefined' && !!(window as any).audio;
+    if (hasDesktopEngine) {
+      try {
+        if (playerB) {
+          if (isPlayingB) (window as any).audio.play('B').catch(() => {});
+          else (window as any).audio.pause('B').catch(() => {});
+        }
+      } catch { /* engine not yet ready */ }
+      return;
+    }
+    if (soundBRef.current && playerB) {
       if (isPlayingB) void soundBRef.current.playAsync();
       else void soundBRef.current.pauseAsync();
     }
@@ -314,27 +361,45 @@ export const usePlayer = ({ setCurrentTrack, setLocalCurrentTrack, addNotificati
   };
 
   const playStandbyTrack = (playerId: "A" | "B") => {
+    const hasDesktopEngine = typeof window !== 'undefined' && !!(window as any).audio;
+
     if (playerId === "A" && playerA) {
       // Stop Player B audio (but keep its track loaded)
-      if (isPlayingB && soundBRef.current) {
-        void soundBRef.current.stopAsync();
+      if (isPlayingB) {
+        if (hasDesktopEngine) {
+          try { (window as any).audio.stop('B'); } catch { /* engine not yet ready */ }
+        } else if (soundBRef.current) {
+          void soundBRef.current.stopAsync();
+        }
         updateRjStudioState({ isPlayingB: false });
       }
       setActivePlayer("A");
       updateRjStudioState({ isPlayingA: true });
-      if (soundARef.current) void soundARef.current.playAsync();
+      if (hasDesktopEngine) {
+        try { (window as any).audio.play('A'); } catch { /* engine not yet ready */ }
+      } else if (soundARef.current) {
+        void soundARef.current.playAsync();
+      }
       setCurrentTrack(playerA);
       setLocalCurrentTrack(playerA);
       addNotification("system", `🎵 Now playing: ${playerA.title}`);
     } else if (playerId === "B" && playerB) {
       // Stop Player A audio (but keep its track loaded)
-      if (isPlayingA && soundARef.current) {
-        void soundARef.current.stopAsync();
+      if (isPlayingA) {
+        if (hasDesktopEngine) {
+          try { (window as any).audio.stop('A'); } catch { /* engine not yet ready */ }
+        } else if (soundARef.current) {
+          void soundARef.current.stopAsync();
+        }
         updateRjStudioState({ isPlayingA: false });
       }
       setActivePlayer("B");
       updateRjStudioState({ isPlayingB: true });
-      if (soundBRef.current) void soundBRef.current.playAsync();
+      if (hasDesktopEngine) {
+        try { (window as any).audio.play('B'); } catch { /* engine not yet ready */ }
+      } else if (soundBRef.current) {
+        void soundBRef.current.playAsync();
+      }
       setCurrentTrack(playerB);
       setLocalCurrentTrack(playerB);
       addNotification("system", `🎵 Now playing: ${playerB.title}`);
@@ -344,13 +409,23 @@ export const usePlayer = ({ setCurrentTrack, setLocalCurrentTrack, addNotificati
 
   // PAUSE ACTIVE TRACK
   const pauseActiveTrack = () => {
+    const hasDesktopEngine = typeof window !== 'undefined' && !!(window as any).audio;
+
     if (activePlayer === "A" && playerA) {
       updateRjStudioState({ isPlayingA: false });
-      if (soundARef.current) void soundARef.current.pauseAsync();
+      if (hasDesktopEngine) {
+        try { (window as any).audio.pause('A'); } catch { /* engine not yet ready */ }
+      } else if (soundARef.current) {
+        void soundARef.current.pauseAsync();
+      }
       addNotification("system", `⏸️ Paused: ${playerA.title}`);
     } else if (activePlayer === "B" && playerB) {
       updateRjStudioState({ isPlayingB: false });
-      if (soundBRef.current) void soundBRef.current.pauseAsync();
+      if (hasDesktopEngine) {
+        try { (window as any).audio.pause('B'); } catch { /* engine not yet ready */ }
+      } else if (soundBRef.current) {
+        void soundBRef.current.pauseAsync();
+      }
       addNotification("system", `⏸️ Paused: ${playerB.title}`);
     }
     void syncDualPlayer('pause_active');
@@ -369,42 +444,71 @@ export const usePlayer = ({ setCurrentTrack, setLocalCurrentTrack, addNotificati
   // STOP ACTIVE TRACK - Stops playing but keeps track in deck
   const stopActiveTrack = () => {
     const trackName = activePlayer === "A" ? playerA?.title : playerB?.title;
-    
+    const hasDesktopEngine = typeof window !== 'undefined' && !!(window as any).audio;
+
     if (activePlayer === "A") {
-      if (soundARef.current) void soundARef.current.stopAsync();
+      if (hasDesktopEngine) {
+        try { (window as any).audio.stop('A'); } catch { /* engine not yet ready */ }
+      } else if (soundARef.current) {
+        void soundARef.current.stopAsync();
+      }
       updateRjStudioState({ isPlayingA: false });
     } else {
-      if (soundBRef.current) void soundBRef.current.stopAsync();
+      if (hasDesktopEngine) {
+        try { (window as any).audio.stop('B'); } catch { /* engine not yet ready */ }
+      } else if (soundBRef.current) {
+        void soundBRef.current.stopAsync();
+      }
       updateRjStudioState({ isPlayingB: false });
     }
-    
+
     addNotification("system", `⏹️ Stopped: ${trackName || "Current song"}`);
     void syncDualPlayer('stop_active');
   };
 
   // PAUSE STANDBY TRACK
   const pauseStandby = (playerId: "A" | "B") => {
+    const hasDesktopEngine = typeof window !== 'undefined' && !!(window as any).audio;
+
     if (playerId === "A" && playerA && activePlayer !== "A") {
       updateRjStudioState({ isPlayingA: false });
-      if (soundARef.current) void soundARef.current.pauseAsync();
+      if (hasDesktopEngine) {
+        try { (window as any).audio.pause('A'); } catch { /* engine not yet ready */ }
+      } else if (soundARef.current) {
+        void soundARef.current.pauseAsync();
+      }
       addNotification("system", `⏸️ Paused (Standby): ${playerA.title}`);
     } else if (playerId === "B" && playerB && activePlayer !== "B") {
       updateRjStudioState({ isPlayingB: false });
-      if (soundBRef.current) void soundBRef.current.pauseAsync();
+      if (hasDesktopEngine) {
+        try { (window as any).audio.pause('B'); } catch { /* engine not yet ready */ }
+      } else if (soundBRef.current) {
+        void soundBRef.current.pauseAsync();
+      }
       addNotification("system", `⏸️ Paused (Standby): ${playerB.title}`);
     }
     void syncDualPlayer('pause_standby', { playerId });
   };
 
   const stopStandby = (playerId: "A" | "B") => {
+    const hasDesktopEngine = typeof window !== 'undefined' && !!(window as any).audio;
+
     if (playerId === "A" && activePlayer !== "A") {
       const trackName = playerA?.title;
-      if (soundARef.current) void soundARef.current.stopAsync();
+      if (hasDesktopEngine) {
+        try { (window as any).audio.stop('A'); } catch { /* engine not yet ready */ }
+      } else if (soundARef.current) {
+        void soundARef.current.stopAsync();
+      }
       updateRjStudioState({ isPlayingA: false });
       addNotification("system", `⏹️ Stopped (Standby): ${trackName}`);
     } else if (playerId === "B" && activePlayer !== "B") {
       const trackName = playerB?.title;
-      if (soundBRef.current) void soundBRef.current.stopAsync();
+      if (hasDesktopEngine) {
+        try { (window as any).audio.stop('B'); } catch { /* engine not yet ready */ }
+      } else if (soundBRef.current) {
+        void soundBRef.current.stopAsync();
+      }
       updateRjStudioState({ isPlayingB: false });
       addNotification("system", `⏹️ Stopped (Standby): ${trackName}`);
     }
@@ -412,12 +516,22 @@ export const usePlayer = ({ setCurrentTrack, setLocalCurrentTrack, addNotificati
   };
 
   const clearDeck = (playerId: "A" | "B") => {
+    const hasDesktopEngine = typeof window !== 'undefined' && !!(window as any).audio;
+
     if (playerId === "A") {
-      if (soundARef.current) void soundARef.current.stopAsync();
+      if (hasDesktopEngine) {
+        try { (window as any).audio.stop('A'); } catch { /* engine not yet ready */ }
+      } else if (soundARef.current) {
+        void soundARef.current.stopAsync();
+      }
       setPlayerA(null);
       addNotification("system", `🗑️ Cleared Player A`);
     } else {
-      if (soundBRef.current) void soundBRef.current.stopAsync();
+      if (hasDesktopEngine) {
+        try { (window as any).audio.stop('B'); } catch { /* engine not yet ready */ }
+      } else if (soundBRef.current) {
+        void soundBRef.current.stopAsync();
+      }
       setPlayerB(null);
       addNotification("system", `🗑️ Cleared Player B`);
     }

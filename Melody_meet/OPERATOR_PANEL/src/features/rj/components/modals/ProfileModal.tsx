@@ -4,24 +4,25 @@ import { Feather } from '@expo/vector-icons';
 
 interface ProfileModalProps {
   visible: boolean;
+  onClose: () => void;
   isDarkMode: boolean;
   colors: any;
-  onClose: () => void;
+  user?: { name?: string; email?: string; avatar?: string } | null;
 }
 
-export const ProfileModal: React.FC<ProfileModalProps> = ({ visible, isDarkMode, colors, onClose }) => {
-  const rjProfile = {
-    name: "DJ MAVERICK",
-    avatar: "DJ",
-    followers: "12.5K",
-    joinRate: "+24",
-    leaveRate: "-8",
-    isOnline: true
-  };
-
+export const ProfileModal: React.FC<ProfileModalProps> = ({ visible, isDarkMode, colors, onClose, user }) => {
+  // Use user data if available, otherwise fallback to demo data
+  const displayName = user?.name || "DJ MAVERICK";
+  const avatarLetter = user?.name?.charAt(0) || "DJ";
+  const userEmail = user?.email || "operator@melodymeet.com";
+  
+  // Demo stats (these would come from backend in real app)
   const rjStats = {
     subscribers: 89,
     followers: 234,
+    joinRate: "+24",
+    leaveRate: "-8",
+    isOnline: true
   };
 
   return (
@@ -61,17 +62,20 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ visible, isDarkMode,
               position: 'relative',
               backgroundColor: isDarkMode ? '#1E3A8A' : '#EEF2FF',
             }}>
-              <Text style={{ fontSize: 26, fontWeight: '700', color: isDarkMode ? '#6B8EFF' : '#4F6AF0' }}>{rjProfile.avatar}</Text>
-              {rjProfile.isOnline && (
+              <Text style={{ fontSize: 26, fontWeight: '700', color: isDarkMode ? '#6B8EFF' : '#4F6AF0' }}>{avatarLetter}</Text>
+              {rjStats.isOnline && (
                 <View style={{ position: 'absolute', width: 14, height: 14, backgroundColor: '#059669', borderRadius: 7, bottom: -2, right: -2, borderWidth: 2, borderColor: isDarkMode ? '#1E293B' : '#FFFFFF' }} />
               )}
             </View>
             <View>
-              <Text style={{ fontSize: 18, fontWeight: '700', color: isDarkMode ? '#F1F5F9' : '#0F172A' }}>{rjProfile.name}</Text>
+              <Text style={{ fontSize: 18, fontWeight: '700', color: isDarkMode ? '#F1F5F9' : '#0F172A' }}>{displayName}</Text>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 3 }}>
                 <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: '#DC2626' }} />
                 <Text style={{ fontSize: 11, fontWeight: '600', color: '#DC2626' }}>LIVE NOW</Text>
               </View>
+              {userEmail && userEmail !== "operator@melodymeet.com" && (
+                <Text style={{ fontSize: 10, marginTop: 2, color: isDarkMode ? '#64748B' : '#94A3B8' }}>{userEmail}</Text>
+              )}
             </View>
           </View>
           
@@ -88,8 +92,8 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ visible, isDarkMode,
             {[
               { label: 'Subscribers', value: rjStats.subscribers },
               { label: 'Followers', value: rjStats.followers },
-              { label: 'Join Rate', value: rjProfile.joinRate },
-              { label: 'Leave Rate', value: rjProfile.leaveRate },
+              { label: 'Join Rate', value: rjStats.joinRate },
+              { label: 'Leave Rate', value: rjStats.leaveRate },
             ].map((stat, i) => (
               <View key={i} style={{ alignItems: 'center' }}>
                 <Text style={{ fontSize: 17, fontWeight: '700', color: isDarkMode ? '#F1F5F9' : '#0F172A' }}>{stat.value}</Text>

@@ -15,6 +15,7 @@ import { OperatorProvider } from './context/OperatorContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { SessionTimer } from './components/SessionTimer';
 import Sidebar from './components/layout/Sidebar';
+
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const RJStudio = lazy(() => import('./features/rj'));
 const PodcastUpload = lazy(() => import('./features/podcast/PodcastUpload'));
@@ -162,6 +163,77 @@ function AppContent({ onLogout }: { onLogout: () => Promise<void> }) {
     <View style={styles.desktopContainer}>
       <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
       
+      {isWeb && typeof window !== 'undefined' && window.audioEngine && (
+        <View style={{ position: 'absolute', top: 10, right: 10, zIndex: 9999, backgroundColor: '#f0f0f0', padding: 10, borderRadius: 8, borderWidth: 1, borderColor: '#ccc' }}>
+          <Text style={{ fontWeight: 'bold', marginBottom: 5 }}>Audio Engine Test</Text>
+          <Text
+            style={{ padding: 8, backgroundColor: '#4CAF50', color: 'white', marginBottom: 5, textAlign: 'center', borderRadius: 4 }}
+            onPress={async () => {
+              try {
+                await window.audioEngine?.initialize();
+                alert('Engine initialized successfully');
+              } catch (e) {
+                alert('Init failed: ' + String(e));
+              }
+            }}
+          >
+            Initialize Engine
+          </Text>
+          <Text
+            style={{ padding: 8, backgroundColor: '#f44336', color: 'white', marginBottom: 5, textAlign: 'center', borderRadius: 4 }}
+            onPress={async () => {
+              try {
+                await window.audioEngine?.shutdown();
+                alert('Engine shut down successfully');
+              } catch (e) {
+                alert('Shutdown failed: ' + String(e));
+              }
+            }}
+          >
+            Shutdown
+          </Text>
+          <Text
+            style={{ padding: 8, backgroundColor: '#2196F3', color: 'white', marginBottom: 5, textAlign: 'center', borderRadius: 4 }}
+            onPress={async () => {
+              try {
+                const v = await window.audioEngine?.version();
+                alert('Version: ' + v);
+              } catch (e) {
+                alert('Version failed: ' + String(e));
+              }
+            }}
+          >
+            Get Version
+          </Text>
+          <Text
+            style={{ padding: 8, backgroundColor: '#FF9800', color: 'white', marginBottom: 5, textAlign: 'center', borderRadius: 4 }}
+            onPress={async () => {
+              try {
+                const init = await window.audioEngine?.isInitialized();
+                alert('Is Initialized: ' + init);
+              } catch (e) {
+                alert('Check failed: ' + String(e));
+              }
+            }}
+          >
+            Check Status
+          </Text>
+          <Text
+            style={{ padding: 8, backgroundColor: '#9C27B0', color: 'white', textAlign: 'center', borderRadius: 4 }}
+            onPress={async () => {
+              try {
+                const info = await window.audioEngine?.engineInfo();
+                alert(`Engine Info:\nVersion: ${info?.version}\nInitialized: ${info?.initialized}\nSample Rate: ${info?.sampleRate}\nBuffer Size: ${info?.bufferSize}`);
+              } catch (e) {
+                alert('Engine info failed: ' + String(e));
+              }
+            }}
+          >
+            Engine Info
+          </Text>
+        </View>
+      )}
+
       {/* Sidebar - Fixed width on left */}
       <View style={{ width: sidebarWidth, height: '100%' }}>
         <Sidebar

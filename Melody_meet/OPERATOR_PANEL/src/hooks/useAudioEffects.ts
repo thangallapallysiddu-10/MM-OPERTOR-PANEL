@@ -2,8 +2,8 @@
 
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { apiClient } from '../services/api/apiClient';
-import { audioEngineManager } from '../services/audioEngine/core/AudioEngineManager';
 import { rjBackend } from '../features/rj/services/rjBackend';
+import { isDesktop } from '../utils/platform';
 
 interface AudioEffectState {
   // Filters
@@ -74,10 +74,22 @@ export const useAudioEffects = (studioId: string | null, playerName: 'A' | 'B') 
       );
       if (response.data?.data) {
         setSettings(response.data.data);
-        audioEngineManager.getDeck(playerName).updateFX({ 
-          ...response.data.data.fx,
-          volume: response.data.data.volume
-        });
+        if (isDesktop()) {
+          try {
+            if (response.data.data.fx) {
+              (window as any).audio.setEQ(playerName, response.data.data.fx);
+            }
+            if (response.data.data.volume !== undefined) {
+              (window as any).audio.setDeckGain(playerName, response.data.data.volume);
+            }
+          } catch { /* ignore */ }
+        } else {
+          const { audioEngineManager } = require('../services/audioEngine/core/AudioEngineManager');
+          audioEngineManager.getDeck(playerName).updateFX({ 
+            ...response.data.data.fx,
+            volume: response.data.data.volume
+          });
+        }
       }
     } catch (err: any) {
       setError(err?.message || 'Failed to fetch player settings');
@@ -102,7 +114,14 @@ export const useAudioEffects = (studioId: string | null, playerName: 'A' | 'B') 
           ...prev,
           fx: { ...prev.fx, [effectName]: value },
         };
-        audioEngineManager.getDeck(playerName).updateFX(newSettings.fx);
+        if (isDesktop()) {
+          try {
+            (window as any).audio.setEQ(playerName, newSettings.fx);
+          } catch { /* ignore */ }
+        } else {
+          const { audioEngineManager } = require('../services/audioEngine/core/AudioEngineManager');
+          audioEngineManager.getDeck(playerName).updateFX(newSettings.fx);
+        }
         return newSettings;
       });
 
@@ -136,7 +155,14 @@ export const useAudioEffects = (studioId: string | null, playerName: 'A' | 'B') 
           ...prev,
           fx: { ...prev.fx, ...fxValues },
         };
-        audioEngineManager.getDeck(playerName).updateFX(newSettings.fx);
+        if (isDesktop()) {
+          try {
+            (window as any).audio.setEQ(playerName, newSettings.fx);
+          } catch { /* ignore */ }
+        } else {
+          const { audioEngineManager } = require('../services/audioEngine/core/AudioEngineManager');
+          audioEngineManager.getDeck(playerName).updateFX(newSettings.fx);
+        }
         return newSettings;
       });
 
@@ -155,7 +181,14 @@ export const useAudioEffects = (studioId: string | null, playerName: 'A' | 'B') 
               ...prev,
               fx: response.data.data,
             };
-            audioEngineManager.getDeck(playerName).updateFX(newSettings.fx);
+            if (isDesktop()) {
+              try {
+                (window as any).audio.setEQ(playerName, newSettings.fx);
+              } catch { /* ignore */ }
+            } else {
+              const { audioEngineManager } = require('../services/audioEngine/core/AudioEngineManager');
+              audioEngineManager.getDeck(playerName).updateFX(newSettings.fx);
+            }
             return newSettings;
           });
         }
@@ -177,7 +210,14 @@ export const useAudioEffects = (studioId: string | null, playerName: 'A' | 'B') 
           ...prev,
           volume: roundedVolume,
         };
-        audioEngineManager.getDeck(playerName).updateFX({ volume: roundedVolume });
+        if (isDesktop()) {
+          try {
+            (window as any).audio.setDeckGain(playerName, roundedVolume);
+          } catch { /* ignore */ }
+        } else {
+          const { audioEngineManager } = require('../services/audioEngine/core/AudioEngineManager');
+          audioEngineManager.getDeck(playerName).updateFX({ volume: roundedVolume });
+        }
         return newSettings;
       });
 
@@ -210,7 +250,14 @@ export const useAudioEffects = (studioId: string | null, playerName: 'A' | 'B') 
         ...prev,
         fx: { ...DEFAULT_FX },
       };
-      audioEngineManager.getDeck(playerName).updateFX(newSettings.fx);
+      if (isDesktop()) {
+        try {
+          (window as any).audio.setEQ(playerName, newSettings.fx);
+        } catch { /* ignore */ }
+      } else {
+        const { audioEngineManager } = require('../services/audioEngine/core/AudioEngineManager');
+        audioEngineManager.getDeck(playerName).updateFX(newSettings.fx);
+      }
       return newSettings;
     });
 
@@ -228,7 +275,14 @@ export const useAudioEffects = (studioId: string | null, playerName: 'A' | 'B') 
             ...prev,
             fx: response.data.data,
           };
-          audioEngineManager.getDeck(playerName).updateFX(newSettings.fx);
+          if (isDesktop()) {
+            try {
+              (window as any).audio.setEQ(playerName, newSettings.fx);
+            } catch { /* ignore */ }
+          } else {
+            const { audioEngineManager } = require('../services/audioEngine/core/AudioEngineManager');
+            audioEngineManager.getDeck(playerName).updateFX(newSettings.fx);
+          }
           return newSettings;
         });
       }

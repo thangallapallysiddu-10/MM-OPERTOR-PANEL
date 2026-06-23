@@ -1,6 +1,6 @@
 ﻿import React, { useCallback, useRef, useEffect, useState } from 'react';
-import { 
-  View, Text, TouchableOpacity, TextInput, FlatList, ScrollView, 
+import {
+  View, Text, TouchableOpacity, TextInput, FlatList, ScrollView,
   Platform, Keyboard
 } from 'react-native';
 import { Feather, Ionicons, FontAwesome5 } from '@expo/vector-icons';
@@ -36,7 +36,6 @@ interface LiveChatProps {
   onAddEmoji: (emoji: string) => void;
   onSetActiveEmojiCategory: (category: keyof typeof emojiCategories) => void;
   onCancelReply: () => void;
-  onOpenGiftModal: () => void;
   onOpenStickerModal: () => void;
   onToggleBanList: () => void;
   onScroll: (event: any) => void;
@@ -45,15 +44,77 @@ interface LiveChatProps {
 const isWeb = Platform.OS === 'web';
 const isNative = Platform.OS !== 'web';
 
+// ─── Color tokens — same as DualPlayer ───────────────────────────────────────
+const C = {
+  rootBg:       '#0E0E12',   // outer container
+  cardBg:       '#181820',   // card / deck surface
+  raisedBg:     '#1E1E2A',   // slightly lifted surface (message bubbles, inputs)
+  border:       '#2A2A36',   // default border
+  borderHover:  '#3A3A4E',   // hover / active border
+
+  textPrimary:  '#FFFFFF',
+  textSecondary:'#8B8FA8',
+  textMuted:    '#4B5568',
+
+  // Accent — matches DualPlayer's indigo send button / crossfader
+  accent:       '#4F6AF0',
+
+  // Live badge
+  liveBadgeBg:  '#2D0A0A',
+  liveBadgeBdr: '#5C1A1A',
+  liveDot:      '#DC2626',
+  liveText:     '#DC2626',
+
+  // Header buttons — same style as DualPlayer's ctrl-btn
+  btnBg:        '#23232F',
+  btnBorder:    '#2E2E3E',
+  btnText:      '#C0C4D6',
+
+  // Message bubble
+  bubbleBg:     '#1E1E2A',
+  bubbleBorder: '#2A2A36',
+
+  // Reply bar
+  replyBg:      '#1E1E2A',
+  replyBorder:  '#2A2A36',
+
+  // Input
+  inputBg:      '#1E1E2A',
+  inputBorder:  '#2A2A36',
+  inputText:    '#FFFFFF',
+  placeholder:  '#4B5568',
+
+  // Emoji picker
+  emojiTabBg:   '#1E1E2A',
+  emojiGridBg:  '#181820',
+  emojiItemBg:  '#23232F',
+
+  // Context menu
+  menuBg:       '#181820',
+  menuBorder:   '#2A2A36',
+};
+
+// User avatar colour palette — same vibe as before, works on dark bg
+const USER_COLORS = [
+  '#38BDF8', '#FACC15', '#FB923C', '#4ADE80',
+  '#F472B6', '#A78BFA', '#22D3EE', '#FCA5A5',
+];
+const getUserColor = (username: string): string => {
+  if (!username) return USER_COLORS[0];
+  let hash = 0;
+  for (let i = 0; i < username.length; i++) {
+    hash = (hash << 5) - hash + username.charCodeAt(i);
+    hash |= 0;
+  }
+  return USER_COLORS[Math.abs(hash) % USER_COLORS.length];
+};
+
 export const LiveChat: React.FC<LiveChatProps> = ({
   filteredMessages,
   newMessage,
   replyTo,
-  bannedUsers,
-  showBanList,
   showEmojiPicker,
   activeEmojiCategory,
-  isDarkMode,
   flatListRef,
   onSendMessage,
   onNewMessageChange,
@@ -61,15 +122,12 @@ export const LiveChat: React.FC<LiveChatProps> = ({
   onReply,
   onBanUser,
   onRestrictUser,
-  onUnbanUser,
   onClearChat,
   onToggleEmojiPicker,
   onAddEmoji,
   onSetActiveEmojiCategory,
   onCancelReply,
-  onOpenGiftModal,
   onOpenStickerModal,
-  onToggleBanList,
   onScroll,
 }) => {
   const isKeyboardVisibleRef = useRef(false);
@@ -77,152 +135,132 @@ export const LiveChat: React.FC<LiveChatProps> = ({
 
   useEffect(() => {
     if (!isNative) return;
-    const showSub = Keyboard.addListener('keyboardDidShow', () => {
-      isKeyboardVisibleRef.current = true;
-    });
-    const hideSub = Keyboard.addListener('keyboardDidHide', () => {
-      isKeyboardVisibleRef.current = false;
-    });
-    return () => {
-      showSub.remove();
-      hideSub.remove();
-    };
+    const showSub = Keyboard.addListener('keyboardDidShow', () => { isKeyboardVisibleRef.current = true; });
+    const hideSub = Keyboard.addListener('keyboardDidHide', () => { isKeyboardVisibleRef.current = false; });
+    return () => { showSub.remove(); hideSub.remove(); };
   }, []);
 
-  // Use global click listener on web to close the context menu instead of onStartShouldSetResponder
   useEffect(() => {
     if (!isWeb) return;
-    const closeMenu = () => {
-      setContextMenu(null);
-    };
-    window.addEventListener('click', closeMenu);
-    return () => window.removeEventListener('click', closeMenu);
+    const close = () => setContextMenu(null);
+    window.addEventListener('click', close);
+    return () => window.removeEventListener('click', close);
   }, []);
 
   const handleContextMenu = useCallback((e: any, username: string) => {
     if (username === 'RJ' || username === 'SYSTEM') return;
-    
     e.preventDefault();
     e.stopPropagation();
-
     let menuX = e.clientX || e.pageX || 0;
     let menuY = e.clientY || e.pageY || 0;
-
     try {
-      const target = e.target;
-      if (target && typeof target.getBoundingClientRect === 'function') {
-        const rect = target.getBoundingClientRect();
-        const menuWidth = 180;
-        const menuHeight = 150;
+      const rect = e.target?.getBoundingClientRect?.();
+      if (rect) {
+        const mW = 180, mH = 150;
         menuX = rect.right + 8;
         menuY = rect.top;
         if (typeof window !== 'undefined') {
-          if (menuX + menuWidth > window.innerWidth) menuX = window.innerWidth - menuWidth - 10;
-          if (menuY + menuHeight > window.innerHeight) menuY = window.innerHeight - menuHeight - 10;
+          if (menuX + mW > window.innerWidth)  menuX = window.innerWidth  - mW - 10;
+          if (menuY + mH > window.innerHeight) menuY = window.innerHeight - mH - 10;
         }
         if (menuX < 10) menuX = 10;
         if (menuY < 10) menuY = 10;
       }
-    } catch (err) {}
-
+    } catch (_) {}
     setContextMenu({ x: menuX, y: menuY, user: username });
   }, []);
 
+  // ─── Message row ───────────────────────────────────────────────────────────
   const renderMessage = useCallback(({ item }: { item: Message }) => {
-    if (!item || !item.user || !item.text || item.text.trim() === '') return null;
+    if (!item?.user || !item?.text?.trim()) return null;
 
-    const isSystem = item.system === true;
-    const isVIP = item.isVIP === true;
-    const avatarLetter = item.avatar || item.user.charAt(0).toUpperCase();
+    const isSystem  = item.system === true;
+    const isVIP     = item.isVIP === true;
+    const letter    = (item.avatar || item.user.charAt(0)).toUpperCase();
+    const userColor = getUserColor(item.user);
 
     const content = (
       <View style={{
         flexDirection: 'row',
-        marginBottom: 14,
-        paddingHorizontal: 5,
-        ...(!isSystem && { alignItems: 'flex-start' }),
+        marginBottom: 10,
+        paddingHorizontal: 4,
+        alignItems: isSystem ? 'center' : 'flex-start',
       }}>
         {!isSystem && (
           <View style={{
             width: 34, height: 34, borderRadius: 10,
-            justifyContent: 'center', alignItems: 'center', marginRight: 8,
-            position: 'relative',
-            backgroundColor: isDarkMode ? '#1E3A8A' : '#EEF2FF',
+            justifyContent: 'center', alignItems: 'center',
+            marginRight: 8,
+            backgroundColor: userColor + '22',
+            borderWidth: 1,
+            borderColor: userColor + '55',
           }}>
-            <Text style={{ fontSize: 13, fontWeight: '700', color: isDarkMode ? '#6B8EFF' : '#4F6AF0' }}>
-              {avatarLetter}
+            <Text style={{ fontSize: 13, fontWeight: '700', color: userColor }}>
+              {letter}
             </Text>
           </View>
         )}
-        
+
         <View style={{
           flex: 1,
-          ...(!isSystem && {
-            borderRadius: 12,
-            padding: 10,
-            backgroundColor: isDarkMode ? '#263347' : '#F1F5F9',
-          })
+          ...(isSystem ? {} : {
+            borderRadius: 10,
+            paddingHorizontal: 10,
+            paddingVertical: 8,
+            backgroundColor: C.bubbleBg,
+            borderWidth: 1,
+            borderColor: C.bubbleBorder,
+          }),
         }}>
           <View style={{
-            flexDirection: 'row', justifyContent: 'space-between',
-            alignItems: 'center', marginBottom: 3, flexWrap: 'wrap', gap: 4,
+            flexDirection: 'row', alignItems: 'center',
+            justifyContent: 'space-between', marginBottom: 3,
+            flexWrap: 'wrap', gap: 4,
           }}>
-            <Text style={{ fontSize: 12, fontWeight: '700', color: isDarkMode ? '#F1F5F9' : '#0F172A' }}>
+            <Text style={{
+              fontSize: 12, fontWeight: '700',
+              color: isSystem ? C.textSecondary : userColor,
+            }}>
               {item.user}
             </Text>
             {isVIP && (
-              <Text style={{ fontSize: 10, fontWeight: '600', color: '#D97706' }}>ðŸ‘‘ VIP</Text>
+              <Text style={{ fontSize: 10, fontWeight: '600', color: '#D97706' }}>👑 VIP</Text>
             )}
-            <Text style={{ fontSize: 9, color: isDarkMode ? '#64748B' : '#94A3B8' }}>
-              {item.time}
-            </Text>
+            <Text style={{ fontSize: 9, color: C.textMuted }}>{item.time}</Text>
           </View>
-          
-          <Text style={{
-            fontSize: 13, lineHeight: 19,
-            color: isSystem ? (isDarkMode ? '#64748B' : '#94A3B8') : (isDarkMode ? '#E2E8F0' : '#334155'),
-            flexWrap: 'wrap', flexShrink: 1,
-          }}>
+
+          <Text style={{ fontSize: 13, lineHeight: 19, color: C.textPrimary, flexShrink: 1 }}>
             {item.text}
           </Text>
-          
-          {!isSystem && typeof item.likeCount === 'number' && item.likeCount > 0 ? (
+
+          {!isSystem && typeof item.likeCount === 'number' && item.likeCount > 0 && (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 }}>
               <Ionicons name="heart" size={11} color="#DC2626" />
-              <Text style={{ fontSize: 10, color: isDarkMode ? '#64748B' : '#94A3B8' }}>{item.likeCount}</Text>
+              <Text style={{ fontSize: 10, color: C.textMuted }}>{item.likeCount}</Text>
             </View>
-          ) : null}
+          )}
         </View>
       </View>
     );
 
-    // On Web, we MUST replace TouchableOpacity with a standard HTML element entirely to ensure 
-    // the gesture system doesn't swallow native right clicks.
     if (isWeb) {
       return (
         <div
           key={item.id}
           onContextMenu={(e) => handleContextMenu(e, item.user)}
-          onClick={() => {
-            setContextMenu(null);
-            onLikeMessage(item.id);
-          }}
-          style={{ cursor: 'pointer', display: 'flex', flexDirection: 'column' }}
+          onClick={() => { setContextMenu(null); onLikeMessage(item.id); }}
+          style={{ cursor: 'pointer' }}
         >
           {content}
         </div>
       );
     }
 
-    // On Native mobile, keep TouchableOpacity
     return (
       <View key={item.id}>
         <TouchableOpacity
           activeOpacity={1}
-          onPress={() => {
-            setContextMenu(null);
-            onLikeMessage(item.id);
-          }}
+          onPress={() => { setContextMenu(null); onLikeMessage(item.id); }}
           onLongPress={() => onReply(item.user)}
           delayLongPress={300}
         >
@@ -230,134 +268,77 @@ export const LiveChat: React.FC<LiveChatProps> = ({
         </TouchableOpacity>
       </View>
     );
-  }, [isDarkMode, onLikeMessage, onReply, handleContextMenu]);
+  }, [onLikeMessage, onReply, handleContextMenu]);
 
   const handleContentSizeChange = useCallback(() => {
     if (flatListRef.current) {
-      setTimeout(() => {
-        flatListRef.current?.scrollToEnd({ animated: false });
-      }, 50);
+      setTimeout(() => flatListRef.current?.scrollToEnd({ animated: false }), 50);
     }
   }, [flatListRef]);
 
-  const messageCount = filteredMessages.length;
-  
-  const currentEmojis = emojiCategories[activeEmojiCategory] || [];
-  const displayEmojis = currentEmojis.slice(0, 20);
+  const currentEmojis  = (emojiCategories[activeEmojiCategory] || []).slice(0, 20);
+  const messageCount   = filteredMessages.length;
 
-  const getCategoryIcon = (category: string) => {
-    const icons: Record<string, string> = {
-      'smileys':   '😊',
-      'music':     '🎵',
-      'reactions': '👍',
-      'hearts':    '❤️',
-      'fire':      '🔥',
-    };
-    return icons[category] || '😊';
+  const getCategoryIcon = (cat: string) =>
+    ({ smileys: '😊', music: '🎵', reactions: '👍', hearts: '❤️', fire: '🔥' }[cat] ?? '😊');
+
+  // ─── Shared header-button style ────────────────────────────────────────────
+  const hdrBtn = {
+    flexDirection: 'row' as const, alignItems: 'center' as const, gap: 5,
+    paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8,
+    backgroundColor: C.btnBg, borderWidth: 1, borderColor: C.btnBorder,
   };
+
   return (
     <View style={{
-      backgroundColor: isDarkMode ? '#1E293B' : '#FFFFFF',
+      backgroundColor: C.rootBg,
       borderRadius: 14,
       overflow: 'visible',
       borderWidth: 1,
-      borderColor: isDarkMode ? '#334155' : '#E2E8F0',
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 1 },
-      shadowOpacity: isDarkMode ? 0.15 : 0.04,
-      shadowRadius: 4,
-      elevation: 2,
+      borderColor: C.border,
     }}>
-      {/* Header */}
+
+      {/* ── Header ── */}
       <View style={{
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        padding: 14,
-        borderBottomWidth: 1,
-        borderBottomColor: isDarkMode ? '#334155' : '#E2E8F0',
-        flexWrap: 'wrap',
-        gap: 8,
+        flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+        padding: 12, borderBottomWidth: 1, borderBottomColor: C.border,
+        flexWrap: 'wrap', gap: 8,
+        backgroundColor: C.cardBg,
+        borderTopLeftRadius: 14, borderTopRightRadius: 14,
       }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-          <Text style={{ fontSize: 12, fontWeight: '700', letterSpacing: 0.5, color: isDarkMode ? '#F1F5F9' : '#0F172A' }}>
+          <Text style={{ fontSize: 12, fontWeight: '700', letterSpacing: 0.8, color: C.textPrimary }}>
             LIVE CHAT
           </Text>
           <View style={{
             flexDirection: 'row', alignItems: 'center', gap: 4,
             paddingHorizontal: 7, paddingVertical: 3, borderRadius: 7,
-            backgroundColor: '#FEF2F2', borderWidth: 1, borderColor: '#FECACA',
+            backgroundColor: C.liveBadgeBg, borderWidth: 1, borderColor: C.liveBadgeBdr,
           }}>
-            <View style={{ width: 5, height: 5, borderRadius: 3, backgroundColor: '#DC2626' }} />
-            <Text style={{ fontSize: 9, fontWeight: '700', color: '#DC2626' }}>LIVE</Text>
+            <View style={{ width: 5, height: 5, borderRadius: 3, backgroundColor: C.liveDot }} />
+            <Text style={{ fontSize: 9, fontWeight: '700', color: C.liveText }}>LIVE</Text>
           </View>
-          <Text style={{ fontSize: 12, color: isDarkMode ? '#64748B' : '#94A3B8' }}>({messageCount})</Text>
+          <Text style={{ fontSize: 12, color: C.textMuted }}>({messageCount})</Text>
         </View>
 
         <View style={{ flexDirection: 'row', gap: 6 }}>
-          {[
-            { label: 'Gift', icon: 'gift', action: onOpenGiftModal, isFa: true },
-            { label: 'Sticker', icon: 'smile', action: onOpenStickerModal, isFa: false },
-            { label: 'Ban', icon: 'slash', action: onToggleBanList, isFa: false },
-            { label: 'Clear', icon: 'trash-2', action: onClearChat, isFa: false },
-          ].map(({ label, icon, action, isFa }) => (
-            <TouchableOpacity
-              key={label}
-              onPress={action}
-              style={{
-                flexDirection: 'row', alignItems: 'center', gap: 4,
-                paddingHorizontal: 9, paddingVertical: 6, borderRadius: 8,
-                borderWidth: 1,
-                borderColor: isDarkMode ? '#334155' : '#E2E8F0',
-                backgroundColor: isDarkMode ? '#263347' : '#F8FAFC',
-              }}
-            >
-              {isFa
-                ? <FontAwesome5 name={icon as any} size={12} color={isDarkMode ? '#94A3B8' : '#475569'} />
-                : <Feather name={icon as any} size={12} color={isDarkMode ? '#94A3B8' : '#475569'} />
-              }
-              <Text style={{ fontSize: 11, fontWeight: '500', color: isDarkMode ? '#94A3B8' : '#475569' }}>{label}</Text>
-            </TouchableOpacity>
-          ))}
+          <TouchableOpacity onPress={onOpenStickerModal} style={hdrBtn}>
+            <Feather name="smile" size={12} color={C.btnText} />
+            <Text style={{ fontSize: 11, fontWeight: '500', color: C.btnText }}>Sticker</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={onClearChat} style={hdrBtn}>
+            <Feather name="trash-2" size={12} color={C.btnText} />
+            <Text style={{ fontSize: 11, fontWeight: '500', color: C.btnText }}>Clear</Text>
+          </TouchableOpacity>
         </View>
       </View>
 
-      {/* Ban List */}
-      {showBanList && (
-        <View style={{
-          padding: 12, borderBottomWidth: 1,
-          borderBottomColor: isDarkMode ? '#334155' : '#E2E8F0',
-          backgroundColor: isDarkMode ? '#263347' : '#F8FAFC',
-        }}>
-          <Text style={{ fontSize: 11, fontWeight: '700', letterSpacing: 0.5, marginBottom: 6, color: isDarkMode ? '#64748B' : '#94A3B8' }}>
-            BANNED USERS
-          </Text>
-          {bannedUsers.length === 0 ? (
-            <Text style={{ fontSize: 12, color: isDarkMode ? '#64748B' : '#94A3B8' }}>No banned users</Text>
-          ) : (
-            <View style={{ gap: 6 }}>
-              {bannedUsers.map(user => (
-                <View key={user} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Text style={{ fontSize: 12, color: isDarkMode ? '#F1F5F9' : '#0F172A' }}>{user}</Text>
-                  <TouchableOpacity
-                    onPress={() => onUnbanUser(user)}
-                    style={{ paddingHorizontal: 10, paddingVertical: 4, borderRadius: 7, backgroundColor: '#ECFDF5', borderWidth: 1, borderColor: '#A7F3D0' }}
-                  >
-                    <Text style={{ fontSize: 10, fontWeight: '600', color: '#059669' }}>Unban</Text>
-                  </TouchableOpacity>
-                </View>
-              ))}
-            </View>
-          )}
-        </View>
-      )}
-
-      {/* Messages List */}
+      {/* ── Messages ── */}
       <FlatList
         ref={flatListRef}
         data={filteredMessages}
         keyExtractor={(item) => String(item.id)}
-        style={{ height: 300, backgroundColor: isDarkMode ? '#1E293B' : '#FFFFFF' }}
+        style={{ height: 300, backgroundColor: C.rootBg }}
         contentContainerStyle={{ padding: 12, paddingBottom: 16 }}
         onScroll={onScroll}
         scrollEventThrottle={16}
@@ -371,45 +352,58 @@ export const LiveChat: React.FC<LiveChatProps> = ({
         windowSize={5}
       />
 
-      {/* Reply indicator */}
+      {/* ── Reply indicator ── */}
       {replyTo && (
         <View style={{
           flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-          padding: 10, marginHorizontal: 12, marginBottom: 8,
+          paddingHorizontal: 12, paddingVertical: 8,
+          marginHorizontal: 12, marginBottom: 8,
           borderRadius: 9, borderWidth: 1,
-          borderColor: isDarkMode ? '#334155' : '#E2E8F0',
-          backgroundColor: isDarkMode ? '#263347' : '#F1F5F9',
+          borderColor: C.replyBorder,
+          backgroundColor: C.replyBg,
         }}>
-          <Feather name="corner-up-left" size={13} color={isDarkMode ? '#94A3B8' : '#475569'} />
-          <Text style={{ fontSize: 11, flex: 1, marginHorizontal: 8, color: isDarkMode ? '#94A3B8' : '#475569' }}>
+          <Feather name="corner-up-left" size={13} color={C.textSecondary} />
+          <Text style={{ fontSize: 11, flex: 1, marginHorizontal: 8, color: C.textSecondary }}>
             Replying to @{replyTo.user}
           </Text>
           <TouchableOpacity
             onPress={onCancelReply}
-            style={{ width: 20, height: 20, borderRadius: 5, backgroundColor: isDarkMode ? '#334155' : '#E2E8F0', justifyContent: 'center', alignItems: 'center' }}
+            style={{
+              width: 20, height: 20, borderRadius: 5,
+              backgroundColor: C.btnBg, borderWidth: 1, borderColor: C.btnBorder,
+              justifyContent: 'center', alignItems: 'center',
+            }}
           >
-            <Feather name="x" size={11} color={isDarkMode ? '#94A3B8' : '#475569'} />
+            <Feather name="x" size={11} color={C.textSecondary} />
           </TouchableOpacity>
         </View>
       )}
 
-      {/* Input */}
-      <View style={{ padding: 12, borderTopWidth: 1, borderTopColor: isDarkMode ? '#334155' : '#E2E8F0' }}>
-        <View style={{ flexDirection: 'row', gap: 8, position: 'relative' }}>
+      {/* ── Input row ── */}
+      <View style={{
+        padding: 12,
+        borderTopWidth: 1, borderTopColor: C.border,
+        backgroundColor: C.cardBg,
+        borderBottomLeftRadius: 14, borderBottomRightRadius: 14,
+      }}>
+        <View style={{ flexDirection: 'row', gap: 8 }}>
           <View style={{ flex: 1, position: 'relative' }}>
             <TextInput
               value={newMessage}
               onChangeText={onNewMessageChange}
               onSubmitEditing={onSendMessage}
-              placeholder={replyTo ? `Reply to @${replyTo.user}...` : "Type a message..."}
-              placeholderTextColor={isDarkMode ? '#64748B' : '#94A3B8'}
+              placeholder={replyTo ? `Reply to @${replyTo.user}...` : 'Type your message...'}
+              placeholderTextColor={C.placeholder}
               style={{
-                borderRadius: 10, paddingHorizontal: 14,
+                borderRadius: 10,
+                paddingHorizontal: 14,
                 paddingVertical: Platform.select({ ios: 13, android: 10, default: 11 }),
-                fontSize: 13, paddingRight: 44,
-                backgroundColor: isDarkMode ? '#263347' : '#F8FAFC',
-                borderWidth: 1, borderColor: isDarkMode ? '#334155' : '#E2E8F0',
-                color: isDarkMode ? '#F1F5F9' : '#0F172A',
+                fontSize: 13,
+                paddingRight: 44,
+                backgroundColor: C.inputBg,
+                borderWidth: 1,
+                borderColor: C.inputBorder,
+                color: C.inputText,
               }}
               returnKeyType="send"
               blurOnSubmit
@@ -417,50 +411,53 @@ export const LiveChat: React.FC<LiveChatProps> = ({
               multiline={isWeb}
               numberOfLines={1}
             />
-            <TouchableOpacity onPress={onToggleEmojiPicker} style={{ position: 'absolute', right: 11, top: 10 }}>
-              <Text style={{ fontSize: 17 }}>ðŸ˜Š</Text>
+            <TouchableOpacity
+              onPress={onToggleEmojiPicker}
+              style={{ position: 'absolute', right: 11, top: 10 }}
+            >
+              <Text style={{ fontSize: 18 }}>😊</Text>
             </TouchableOpacity>
           </View>
 
+          
           <TouchableOpacity
             onPress={onSendMessage}
+            disabled={newMessage.trim().length === 0}
             style={{
               paddingHorizontal: 16, paddingVertical: 11, borderRadius: 10,
-              justifyContent: 'center',
-              backgroundColor: '#4F6AF0',
-              opacity: newMessage.trim().length > 0 ? 1 : 0.4,
+              justifyContent: 'center', alignItems: 'center',
+              backgroundColor: C.accent,
+              opacity: newMessage.trim().length > 0 ? 1 : 0.35,
             }}
-            disabled={newMessage.trim().length === 0}
           >
             <Feather name="send" size={16} color="#FFFFFF" />
           </TouchableOpacity>
         </View>
 
-        {/* Emoji Picker */}
+        {/* ── Emoji picker ── */}
         {showEmojiPicker && (
           <View style={{
             marginTop: 10, borderRadius: 12, borderWidth: 1,
-            borderColor: isDarkMode ? '#334155' : '#E2E8F0',
-            backgroundColor: isDarkMode ? '#1E293B' : '#FFFFFF',
+            borderColor: C.border, backgroundColor: C.emojiGridBg,
             overflow: 'hidden',
           }}>
             <ScrollView
               horizontal showsHorizontalScrollIndicator={false}
-              style={{ borderBottomWidth: 1, borderBottomColor: isDarkMode ? '#334155' : '#E2E8F0', backgroundColor: isDarkMode ? '#263347' : '#F8FAFC' }}
+              style={{ borderBottomWidth: 1, borderBottomColor: C.border, backgroundColor: C.emojiTabBg }}
               contentContainerStyle={{ paddingHorizontal: 8 }}
             >
-              {Object.keys(emojiCategories).map((category) => (
+              {Object.keys(emojiCategories).map((cat) => (
                 <TouchableOpacity
-                  key={category}
-                  onPress={() => onSetActiveEmojiCategory(category as keyof typeof emojiCategories)}
+                  key={cat}
+                  onPress={() => onSetActiveEmojiCategory(cat as keyof typeof emojiCategories)}
                   style={{
                     paddingHorizontal: 14, paddingVertical: 9,
                     borderBottomWidth: 2,
-                    borderBottomColor: activeEmojiCategory === category ? '#4F6AF0' : 'transparent',
+                    borderBottomColor: activeEmojiCategory === cat ? C.accent : 'transparent',
                   }}
                 >
-                  <Text style={{ fontSize: 20, opacity: activeEmojiCategory === category ? 1 : 0.55 }}>
-                    {getCategoryIcon(category)}
+                  <Text style={{ fontSize: 20, opacity: activeEmojiCategory === cat ? 1 : 0.45 }}>
+                    {getCategoryIcon(cat)}
                   </Text>
                 </TouchableOpacity>
               ))}
@@ -468,13 +465,13 @@ export const LiveChat: React.FC<LiveChatProps> = ({
 
             <View style={{ padding: 10 }}>
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center' }}>
-                {displayEmojis.map((emoji: string, index: number) => (
+                {currentEmojis.map((emoji: string, i: number) => (
                   <TouchableOpacity
-                    key={index}
+                    key={i}
                     onPress={() => onAddEmoji(emoji)}
                     style={{
                       padding: 7, margin: 3, borderRadius: 8,
-                      backgroundColor: isDarkMode ? '#263347' : '#F1F5F9',
+                      backgroundColor: C.emojiItemBg,
                     }}
                   >
                     <Text style={{ fontSize: 22 }}>{emoji}</Text>
@@ -486,30 +483,39 @@ export const LiveChat: React.FC<LiveChatProps> = ({
         )}
       </View>
 
-      {/* Context Menu */}
+      {/* ── Context menu (web only) ── */}
       {isWeb && contextMenu && (
         <View style={{
           position: 'fixed' as any,
           top: contextMenu.y, left: contextMenu.x,
-          width: 180, zIndex: 9999, borderRadius: 10,
-          borderWidth: 1, borderColor: isDarkMode ? '#334155' : '#E2E8F0',
-          backgroundColor: isDarkMode ? '#1E293B' : '#FFFFFF',
-          shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 10,
-          shadowOffset: { width: 0, height: 4 },
+          width: 180, zIndex: 9999,
+          borderRadius: 10, borderWidth: 1, borderColor: C.menuBorder,
+          backgroundColor: C.menuBg,
+          shadowColor: '#000', shadowOpacity: 0.4,
+          shadowRadius: 12, shadowOffset: { width: 0, height: 4 },
           elevation: 8,
         }}>
-          <Text style={{ fontSize: 11, fontWeight: '700', padding: 10, color: isDarkMode ? '#94A3B8' : '#475569' }}>
+          <Text style={{ fontSize: 11, fontWeight: '700', padding: 10, color: C.textSecondary }}>
             {contextMenu.user}
           </Text>
-          <TouchableOpacity onPress={() => { onRestrictUser(contextMenu.user, 5); setContextMenu(null); }} style={{ paddingHorizontal: 12, paddingVertical: 9, borderTopWidth: 1, borderTopColor: isDarkMode ? '#334155' : '#F1F5F9' }}>
-            <Text style={{ fontSize: 12, color: '#D97706' }}>Restrict 5 min</Text>
-          </TouchableOpacity>
-          <TouchableOpacity onPress={() => { onRestrictUser(contextMenu.user, 10); setContextMenu(null); }} style={{ paddingHorizontal: 12, paddingVertical: 9, borderTopWidth: 1, borderTopColor: isDarkMode ? '#334155' : '#F1F5F9' }}>
-            <Text style={{ fontSize: 12, color: '#D97706' }}>Restrict 10 min</Text>
-          </TouchableOpacity>
-          <TouchableOpacity onPress={() => { onBanUser(contextMenu.user); setContextMenu(null); }} style={{ paddingHorizontal: 12, paddingVertical: 9, borderTopWidth: 1, borderTopColor: isDarkMode ? '#334155' : '#F1F5F9' }}>
-            <Text style={{ fontSize: 12, color: '#DC2626', fontWeight: '700' }}>Ban User</Text>
-          </TouchableOpacity>
+          {[
+            { label: 'Restrict 5 min',  action: () => { onRestrictUser(contextMenu.user, 5);  setContextMenu(null); }, color: '#D97706' },
+            { label: 'Restrict 10 min', action: () => { onRestrictUser(contextMenu.user, 10); setContextMenu(null); }, color: '#D97706' },
+            { label: 'Ban User',        action: () => { onBanUser(contextMenu.user);           setContextMenu(null); }, color: '#DC2626' },
+          ].map(({ label, action, color }) => (
+            <TouchableOpacity
+              key={label}
+              onPress={action}
+              style={{
+                paddingHorizontal: 12, paddingVertical: 9,
+                borderTopWidth: 1, borderTopColor: C.menuBorder,
+              }}
+            >
+              <Text style={{ fontSize: 12, color, fontWeight: label === 'Ban User' ? '700' : '400' }}>
+                {label}
+              </Text>
+            </TouchableOpacity>
+          ))}
         </View>
       )}
     </View>

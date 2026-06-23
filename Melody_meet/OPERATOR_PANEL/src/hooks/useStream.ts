@@ -13,7 +13,7 @@ export const useStream = () => {
   const [bufferHealth, setBufferHealth] = useState(100);
   const [droppedFrames, setDroppedFrames] = useState(0);
   
-  // Simulate stream health monitoring
+  // Simulate stream health monitoring (web fallback)
   useEffect(() => {
     if (!isLive) {
       setStreamHealth('offline');
@@ -24,8 +24,23 @@ export const useStream = () => {
     
     setStreamHealth('stable');
     setBufferHealth(100);
+
+    // If native broadcast is available, use real stats instead of simulation
+    if (typeof window !== 'undefined' && (window as any).audio?.on) {
+      const handleStats = (data: any) => {
+        setStreamHealth(data.reconnecting ? 'unstable' : 'stable');
+        setBitrate(data.bitrate || 128);
+        setBufferHealth(100);
+        setNetworkLatency(0);
+      };
+
+      (window as any).audio.on('broadcast:stats', handleStats);
+      return () => {
+        (window as any).audio.off('broadcast:stats', handleStats);
+      };
+    }
     
-    // Simulate network fluctuations
+    // Simulate network fluctuations (web fallback only)
     const interval = setInterval(() => {
       const random = Math.random();
       

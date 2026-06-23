@@ -4,12 +4,14 @@ import {
   StyleSheet, KeyboardAvoidingView, useWindowDimensions 
 } from 'react-native';
 import { Ionicons, Feather, MaterialIcons } from '@expo/vector-icons';
+import { useAuth } from '../../context/AuthContext';
 import { useOperator } from '../../context/OperatorContext';
 import { useAppStore } from '../../store/useAppStore';
 
 import { ProfileModal } from './components/modals/ProfileModal';
 import { SettingsModal } from './components/modals/SettingsModal';
 import { NotificationsModal } from './components/modals/NotificationsModal';
+import { ScheduleModal } from './components/modals/ScheduleModal';
 
 import { Track, Message } from './types';
 import { lightTheme, darkTheme } from './themes';
@@ -30,6 +32,17 @@ import { syncDualPlayer } from './services/rjApiSync';
 import { rjBackend } from './services/rjBackend';
 import { chatSocket } from '../../services/socketService';
 import { RjSetupModal } from './components/modals/RjSetupModal';
+
+// Schedule Event Interface
+interface ScheduledEvent {
+  id: string;
+  title: string;
+  description: string;
+  date: Date;
+  duration: number;
+  isActive: boolean;
+  notificationSent: boolean;
+}
 
 const isIOS = Platform.OS === 'ios';
 const isAndroid = Platform.OS === 'android';
@@ -63,10 +76,56 @@ const RJStudio = ({ navigation }: any) => {
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [showNotificationsModal, setShowNotificationsModal] = useState(false);
   const [showRjSetupModal, setShowRjSetupModal] = useState(false);
+  const [showScheduleModal, setShowScheduleModal] = useState(false);
+  const [scheduledEvents, setScheduledEvents] = useState<ScheduledEvent[]>([]);
+  
+  const { user } = useAuth();
 
   useEffect(() => {
     setProfileDarkMode(isDarkMode);
   }, [isDarkMode]);
+
+  // Handle scheduling event
+  const handleScheduleEvent = (event: ScheduledEvent) => {
+    setScheduledEvents(prev => [...prev, event]);
+    
+    // Send notification to users via API
+    if (event.notificationSent && studioId) {
+      RjApi.createNotification(studioId, {
+        title: `📅 Upcoming Live Show: ${event.title}`,
+        message: `${user?.name || rjProfile.name} will go live at ${formatEventTime(event.date)} for ${event.duration} minutes`,
+        type: 'system'
+      }).catch(() => {});
+    }
+    
+    notifications.addNotification(
+      'system',
+      `📅 Live show scheduled: "${event.title}" at ${formatEventTime(event.date)}`
+    );
+  };
+
+  // Handle cancel event
+  const handleCancelEvent = (eventId: string) => {
+    const event = scheduledEvents.find(e => e.id === eventId);
+    setScheduledEvents(prev => prev.filter(e => e.id !== eventId));
+    
+    if (event && studioId) {
+      RjApi.createNotification(studioId, {
+        title: `❌ Live Show Cancelled: ${event.title}`,
+        message: `Sorry, the scheduled live show has been cancelled.`,
+        type: 'alert'
+      }).catch(() => {});
+      
+      notifications.addNotification(
+        'alert', 
+        `❌ Live show cancelled: "${event.title}"`
+      );
+    }
+  };
+
+  const formatEventTime = (date: Date) => {
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  };
 
   const handleLocalFilePlayTrack = (track: Track) => {
     setLocalCurrentTrack(track);
@@ -129,15 +188,11 @@ const RJStudio = ({ navigation }: any) => {
   });
 
   // ── Listen Music state — lives here, passed down to modal ────────────────
-  // isListening=true  → operator hears audio (player unmuted)
-  // isListening=false → operator hears nothing (player muted, default)
   const [isListening, setIsListening] = useState(false);
 
   const handleListenToggle = () => {
     const next = !isListening;
     setIsListening(next);
-    // muted=true  → silent (Listen OFF)
-    // muted=false → audible (Listen ON)
     playlistPlayer.setMuted(!next);
   };
   
@@ -149,7 +204,6 @@ const RJStudio = ({ navigation }: any) => {
   }, []);
 
   const handleGoLive = () => {
-    toggleLive();
     setShowRjSetupModal(true);
   };
 
@@ -371,16 +425,27 @@ const RJStudio = ({ navigation }: any) => {
           removeClippedSubviews={false}
         >
           {/* HEADER */}
+          <View className={`px-5 pt-8 pb-4 ${isDarkMode ? 'border-[#334155]' : 'border-[#E2E8F0]'}`}>
+            <View className="flex-row items-start justify-between mb-2">
+              <View className="flex-1 pr-2">
+                <Text className={`text-2xl font-bold tracking-tight ${isDarkMode ? 'text-white' : 'text-black'}`}>RJ Studio</Text>
+              </View>
+            </View>
+            
+            {/* Underline */}
+            <View className="w-16 h-[2px] mt-2 rounded-sm" style={{ backgroundColor: isDarkMode ? '#FFFFFF' : '#000000' }} />
+          </View>
+          
           <View style={styles.header}>
             <TouchableOpacity onPress={() => setShowProfileModal(true)} style={styles.headerLeft}>
               <View style={styles.avatar}>
-                <Text style={styles.avatarText}>DJ</Text>
+                <Text style={styles.avatarText}>{user?.name?.charAt(0) || 'DJ'}</Text>
                 {rjProfile.isOnline && (
                   <View style={{ position: 'absolute', bottom: 2, right: 2, width: 12, height: 12, borderRadius: 6, backgroundColor: '#22C55E', borderWidth: 2, borderColor: '#FFFFFF' }} />
                 )}
               </View>
               <View>
-                <Text style={styles.nameText}>{rjProfile.name}</Text>
+                <Text style={styles.nameText}>{user?.name || rjProfile.name}</Text>
                 <Text style={styles.statusText}>
                   LIVE STUDIO • {localCurrentTrack?.bpm || 0} BPM
                   {backendOnline ? ' • ☁️ synced' : rjSyncReady ? ' • local' : ''}
@@ -416,6 +481,9 @@ const RJStudio = ({ navigation }: any) => {
                 <MaterialIcons name="tune" size={20} color="#FFFFFF" />
                 <Text style={styles.rjSetupButtonText}>RJ Setup</Text>
               </TouchableOpacity>
+              
+              
+              
               <TouchableOpacity onPress={() => setShowProfileModal(true)} style={styles.menuButton}>
                 <Feather name="user" size={16} color={isDarkMode ? "#FFFFFF" : "#000000"} />
                 <Text style={styles.menuButtonText}>Profile</Text>
@@ -445,11 +513,21 @@ const RJStudio = ({ navigation }: any) => {
           </View>
 
           {!isLive && (
-            <TouchableOpacity onPress={handleGoLive} style={styles.goLiveButton}>
-              <MaterialIcons name="live-tv" size={24} color="#FFFFFF" />
-              <Text style={styles.goLiveButtonText}>GO LIVE</Text>
-            </TouchableOpacity>
-          )}
+  <View style={{ flexDirection: 'row', gap: 12, justifyContent: 'center', marginBottom: 14 }}>
+    <TouchableOpacity onPress={handleGoLive} style={styles.goLiveButton}>
+      <MaterialIcons name="live-tv" size={24} color="#FFFFFF" />
+      <Text style={styles.goLiveButtonText}>Ready for Live</Text>
+    </TouchableOpacity>
+    
+    <TouchableOpacity 
+      onPress={() => setShowScheduleModal(true)} 
+      style={[styles.goLiveButton, { backgroundColor: '#8B5CF6', width: 'auto', paddingHorizontal: 24 }]}
+    >
+      <Feather name="calendar" size={20} color="#FFFFFF" />
+      <Text style={styles.goLiveButtonText}>Schedule</Text>
+    </TouchableOpacity>
+  </View>
+)}
 
           {showAnnouncement && (
             <View style={styles.announcementBanner}>
@@ -465,6 +543,7 @@ const RJStudio = ({ navigation }: any) => {
         onClose={() => setShowProfileModal(false)} 
         isDarkMode={isDarkMode}
         colors={colors}
+        user={user} 
       />
       
       <SettingsModal 
@@ -484,6 +563,18 @@ const RJStudio = ({ navigation }: any) => {
         unreadCount={notifications.unreadCount}
         onMarkAsRead={notifications.markNotificationAsRead}
         onMarkAllAsRead={notifications.markAllNotificationsAsRead}
+      />
+
+      {/* SCHEDULE MODAL - ADDED */}
+      <ScheduleModal
+        visible={showScheduleModal}
+        onClose={() => setShowScheduleModal(false)}
+        isDarkMode={isDarkMode}
+        colors={colors}
+        onScheduleEvent={handleScheduleEvent}
+        scheduledEvents={scheduledEvents}
+        onCancelEvent={handleCancelEvent}
+        rjName={user?.name || rjProfile.name}
       />
 
       <RjSetupModal
@@ -532,9 +623,11 @@ const RJStudio = ({ navigation }: any) => {
         onPauseStandby={player.pauseStandby}
         onStopStandby={player.stopStandby}
         allMics={micSystem.allMics}
+        availableDevices={micSystem.availableDevices}
         onToggleMicActive={micSystem.toggleMicActive}
         onToggleMicMute={micSystem.toggleMicMute}
         onRemoveMic={micSystem.removeExtraMic}
+        onUpdateMicDevice={micSystem.updateMicDevice}
         onAddMic={async (name: string) => {
           micSystem.setNewMicName(name);
           return micSystem.addNewMic();

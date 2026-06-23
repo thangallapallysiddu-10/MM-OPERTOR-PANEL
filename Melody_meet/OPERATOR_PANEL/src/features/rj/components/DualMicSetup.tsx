@@ -1,100 +1,578 @@
-import React from 'react';
-import { View, Text, TouchableOpacity, ScrollView } from 'react-native';
-import { Feather } from '@expo/vector-icons';
-import { MicUser } from '../types';
+import { useState, useRef, useEffect, useCallback } from "react";
 
-interface DualMicSetupProps {
-  allMics: MicUser[];
-  isDarkMode: boolean;
-  colors: any;
-  onToggleActive: (micId: string) => void;
-  onToggleMute: (micId: string) => void;
-  onRemoveMic: (micId: string) => void;
-  onAddMic: () => void;
+const C = {
+  bg: "#080c14",
+  strip: "#0d1119",
+  stripBorder: "#1a2235",
+  onAirGreen: "#16a34a",
+  onAirGreenHover: "#15803d",
+  offlineGray: "#374151",
+  inputBg: "#1a2235",
+  inputBorder: "#2d3f5c",
+  text: "#e5e7eb",
+  textMuted: "#6b7280",
+  textLight: "#cbd5e1",
+  cyan: "#00d4ff",
+  soloBg: "#1a2235",
+  soloBorder: "#374151",
+  soloActive: "#1a1200",
+  soloActiveBorder: "#d97706",
+  soloActiveText: "#fbbf24",
+  muteDefault: "#ef4444",
+  muteActive: "#7f1d1d",
+  faderBg: "#0a0e18",
+  faderGroove: "#2d3f5c",
+  faderHandle: "#c0cad8",
+  faderHandleBorder: "#8a94a4",
+  barGreen: "#22c55e",
+  barAmber: "#ca8a04",
+  barRed: "#b91c1c",
+  barGhostGreen: "#0a2e10",
+  barGhostAmber: "#2e1a04",
+  barGhostRed: "#2e0808",
+  dashColor: "#9ca3af",
+};
+
+const NUM_BARS = 28, BAR_H = 5, BAR_GAP = 2;
+const METER_H = NUM_BARS * (BAR_H + BAR_GAP);
+const HANDLE_H = 36, HANDLE_W = 28;
+const INPUT_OPTIONS = ["Input 1","Input 2","Input 3","Input 4","Call In 1","Call In 2"];
+const SCALE_LABELS = ["10","5","0","-5","-10","-15","-20","-30","-40","-60"];
+
+type Channel = {
+  id: number;
+  label: string;
+  name: string;
+  input: string;
+  isOnAir: boolean;
+  gain: number;
+  hi: number;
+  mid: number;
+  low: number;
+  fader: number;
+  muted: boolean;
+  soloed: boolean;
+  vuL: number;
+  vuR: number;
+};
+
+type ChannelChanges = Partial<Channel>;
+
+const DEFAULT_CHANNELS: Channel[] = [
+  {id:1,label:"1. RJ Mic 1",     name:"Mamatha",       input:"Input 1",  isOnAir:true,  gain:45, hi:50, mid:50, low:50, fader:60, muted:false, soloed:false, vuL:0, vuR:0},
+  {id:2,label:"2. Guest Mic 1",  name:"Leo",         input:"Input 2",  isOnAir:false, gain:35, hi:50, mid:50, low:50, fader:58, muted:false, soloed:false, vuL:0, vuR:0},
+  {id:3,label:"3. Guest Mic 2",  name:"Riya",        input:"Input 3",  isOnAir:false, gain:50, hi:50, mid:50, low:50, fader:65, muted:false, soloed:false, vuL:0, vuR:0},
+  {id:4,label:"4. Guest Mic 3",  name:"Arjun",       input:"Input 4",  isOnAir:false, gain:40, hi:50, mid:50, low:50, fader:60, muted:false, soloed:false, vuL:0, vuR:0},
+  {id:5,label:"5. Call-in Mic 1",name:"Live Caller", input:"Call In 1",isOnAir:false, gain:55, hi:50, mid:50, low:50, fader:68, muted:false, soloed:false, vuL:0, vuR:0},
+  {id:6,label:"6. Call-in Mic 2",name:"Live Caller", input:"Call In 2",isOnAir:false, gain:55, hi:50, mid:50, low:50, fader:63, muted:false, soloed:false, vuL:0, vuR:0},
+];
+
+// ── KNOB ──────────────────────────────────────────────────────────────────────
+function Knob({ value, onChange, size = 44 }: { value: number; onChange: (v: number) => void; size?: number }) {
+  const dragging = useRef(false);
+  const startY = useRef(0);
+  const startVal = useRef(value);
+
+  const onMouseDown = useCallback((e: React.MouseEvent) => {
+    dragging.current = true;
+    startY.current = e.clientY;
+    startVal.current = value;
+    e.preventDefault();
+    e.stopPropagation();
+  }, [value]);
+
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      if (!dragging.current) return;
+      const delta = (startY.current - e.clientY) / 1.5;
+      onChange(Math.min(100, Math.max(0, startVal.current + delta)));
+    };
+    const onUp = () => { dragging.current = false; };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+  }, [onChange]);
+
+  const cx = size / 2, cy = size / 2;
+  const rOuter = size / 2 - 2;
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const MIN = -135, MAX = 135;
+  const ang = MIN + (value / 100) * (MAX - MIN);
+
+  const arcWidth = Math.max(2, size / 16);
+  const arcR = rOuter;
+
+  const ax1 = cx + arcR * Math.cos(toRad(MIN - 90));
+  const ay1 = cy + arcR * Math.sin(toRad(MIN - 90));
+  const axAll = cx + arcR * Math.cos(toRad(MAX - 90));
+  const ayAll = cy + arcR * Math.sin(toRad(MAX - 90));
+  const ax2 = cx + arcR * Math.cos(toRad(ang - 90));
+  const ay2 = cy + arcR * Math.sin(toRad(ang - 90));
+  const lg = (ang - MIN) > 180 ? 1 : 0;
+
+  const rCollar = arcR - arcWidth - 1;
+  const rBody   = rCollar * 0.93;
+  const rTop    = rBody * 0.8;
+  const rFluteIn  = rBody * 0.8;
+  const rFluteOut = rBody;
+
+  const FLUTES = size < 44 ? 18 : 24;
+  const flutes = Array.from({ length: FLUTES }).map((_, i) => {
+    const a = (360 / FLUTES) * i;
+    const rad = toRad(a);
+    const x1 = cx + rFluteIn  * Math.cos(rad);
+    const y1 = cy + rFluteIn  * Math.sin(rad);
+    const x2 = cx + rFluteOut * Math.cos(rad);
+    const y2 = cy + rFluteOut * Math.sin(rad);
+    return (
+      <line
+        key={i}
+        x1={x1} y1={y1} x2={x2} y2={y2}
+        stroke={i % 2 === 0 ? "#000000" : "#55555a"}
+        strokeWidth={Math.max(1, size / 42)}
+        strokeLinecap="round"
+      />
+    );
+  });
+
+  const pointerInner = rTop * 0.15;
+  const pointerOuter = rTop * 0.95;
+  const pRad = toRad(ang - 90);
+  const px1 = cx + pointerInner * Math.cos(pRad);
+  const py1 = cy + pointerInner * Math.sin(pRad);
+  const px2 = cx + pointerOuter * Math.cos(pRad);
+  const py2 = cy + pointerOuter * Math.sin(pRad);
+  const pointerWidth = Math.max(1.5, size / 24);
+
+  const gid = `knob-grad-${size}-${Math.round(value)}`;
+
+  return (
+    <svg
+      width={size} height={size}
+      style={{ cursor: "ns-resize", userSelect: "none", flexShrink: 0, display: "block" }}
+      onMouseDown={onMouseDown}
+    >
+      <defs>
+        <radialGradient id={`collar-${gid}`} cx="35%" cy="30%" r="75%">
+          <stop offset="0%"   stopColor="#7a8190" />
+          <stop offset="55%"  stopColor="#454b58" />
+          <stop offset="100%" stopColor="#1c1f26" />
+        </radialGradient>
+        <radialGradient id={`body-${gid}`} cx="40%" cy="35%" r="70%">
+          <stop offset="0%"   stopColor="#34343a" />
+          <stop offset="55%"  stopColor="#1a1a1c" />
+          <stop offset="100%" stopColor="#050505" />
+        </radialGradient>
+        <radialGradient id={`top-${gid}`} cx="36%" cy="26%" r="80%">
+          <stop offset="0%"   stopColor="#55555c" />
+          <stop offset="35%"  stopColor="#252528" />
+          <stop offset="100%" stopColor="#040405" />
+        </radialGradient>
+        <filter id={`shadow-${gid}`} x="-50%" y="-50%" width="200%" height="200%">
+          <feDropShadow dx="0" dy="1.5" stdDeviation="1.2" floodColor="#000" floodOpacity="0.6" />
+        </filter>
+      </defs>
+
+      <path
+        d={`M ${ax1} ${ay1} A ${arcR} ${arcR} 0 1 1 ${axAll} ${ayAll}`}
+        fill="none" stroke="#1e2a3a" strokeWidth={arcWidth} strokeLinecap="round"
+      />
+      {value > 0 && (
+        <path
+          d={`M ${ax1} ${ay1} A ${arcR} ${arcR} 0 ${lg} 1 ${ax2} ${ay2}`}
+          fill="none" stroke={C.cyan} strokeWidth={arcWidth} strokeLinecap="round"
+        />
+      )}
+      <circle cx={cx} cy={cy} r={rCollar} fill={`url(#collar-${gid})`} filter={`url(#shadow-${gid})`} />
+      <circle cx={cx} cy={cy} r={rBody} fill={`url(#body-${gid})`} />
+      <g>{flutes}</g>
+      <circle cx={cx} cy={cy} r={rTop} fill={`url(#top-${gid})`} />
+      <circle cx={cx} cy={cy} r={rTop} fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth={1} />
+      <line
+        x1={px1} y1={py1} x2={px2} y2={py2}
+        stroke="#ffffff"
+        strokeWidth={pointerWidth}
+        strokeLinecap="round"
+      />
+    </svg>
+  );
 }
 
-export const DualMicSetup: React.FC<DualMicSetupProps> = ({
-  allMics,
-  isDarkMode,
-  colors,
-  onToggleActive,
-  onToggleMute,
-  onRemoveMic,
-  onAddMic,
-}) => {
+// ── VU BARS ───────────────────────────────────────────────────────────────────
+function VuBars({ level }: { level: number }) {
   return (
-    <View style={{
-      flex: 1, borderRadius: 14, padding: 12, minWidth: 200,
-      backgroundColor: isDarkMode ? '#1E293B' : '#FFFFFF',
-      borderWidth: 1, borderColor: isDarkMode ? '#334155' : '#E2E8F0',
-      shadowColor: '#000', shadowOffset: { width: 0, height: 1 },
-      shadowOpacity: isDarkMode ? 0.15 : 0.04, shadowRadius: 4, elevation: 2,
-    }}>
-      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-        <Text style={{ fontSize: 11, fontWeight: '700', letterSpacing: 0.5, color: isDarkMode ? '#F1F5F9' : '#0F172A' }}>
-          🎙️ MIC SETUP
-        </Text>
-        <TouchableOpacity
-          onPress={onAddMic}
-          style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8, backgroundColor: '#4F6AF0' }}
-        >
-          <Feather name="plus" size={13} color="#FFFFFF" />
-          <Text style={{ fontSize: 10, fontWeight: '700', color: '#FFFFFF' }}>Add Mic</Text>
-        </TouchableOpacity>
-      </View>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-        <View style={{ flexDirection: 'row', gap: 10 }}>
-          {allMics.map((mic) => (
-            <View key={mic.id} style={{
-              padding: 10, borderRadius: 12, minWidth: 110,
-              backgroundColor: isDarkMode ? '#263347' : '#F8FAFC',
-              borderWidth: 1, borderColor: isDarkMode ? '#334155' : '#E2E8F0',
-            }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 12 }}>
-                <Feather name="mic" size={13}
-                  color={mic.isActive ? (isDarkMode ? '#6B8EFF' : '#4F6AF0') : (isDarkMode ? '#64748B' : '#94A3B8')} />
-                <Text style={{ fontSize: 10, fontWeight: '600',
-                  color: mic.isActive ? (isDarkMode ? '#F1F5F9' : '#0F172A') : (isDarkMode ? '#64748B' : '#94A3B8') }}>
-                  {mic.name}
-                </Text>
-              </View>
-              <View style={{ flexDirection: 'row', gap: 5, marginBottom: 8 }}>
-                <TouchableOpacity
-                  onPress={() => onToggleActive(mic.id)}
-                  style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 3,
-                    paddingVertical: 6, borderRadius: 8,
-                    backgroundColor: mic.isActive ? '#059669' : (isDarkMode ? '#334155' : '#E2E8F0') }}
-                >
-                  <Feather name={mic.isActive ? "pause-circle" : "mic"} size={11}
-                    color={mic.isActive ? '#FFFFFF' : (isDarkMode ? '#94A3B8' : '#475569')} />
-                  <Text style={{ fontSize: 9, fontWeight: '700',
-                    color: mic.isActive ? '#FFFFFF' : (isDarkMode ? '#94A3B8' : '#475569') }}>
-                    {mic.isActive ? "ON AIR" : "OFF"}
-                  </Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  onPress={() => onToggleMute(mic.id)}
-                  style={{ paddingHorizontal: 8, paddingVertical: 6, borderRadius: 8,
-                    backgroundColor: mic.isMuted ? '#DC2626' : (isDarkMode ? '#334155' : '#E2E8F0') }}
-                >
-                  <Feather name={mic.isMuted ? "mic-off" : "mic"} size={11}
-                    color={mic.isMuted ? '#FFFFFF' : (isDarkMode ? '#94A3B8' : '#475569')} />
-                </TouchableOpacity>
-                {!mic.id.startsWith("mic1") && !mic.id.startsWith("mic2") && (
-                  <TouchableOpacity onPress={() => onRemoveMic(mic.id)}
-                    style={{ paddingHorizontal: 7, paddingVertical: 6, borderRadius: 8, backgroundColor: '#FEF2F2', borderWidth: 1, borderColor: '#FECACA' }}>
-                    <Feather name="trash-2" size={11} color="#DC2626" />
-                  </TouchableOpacity>
-                )}
-              </View>
-              {/* Level bar */}
-              <View style={{ height: 3, borderRadius: 2, backgroundColor: isDarkMode ? '#334155' : '#E2E8F0', overflow: 'hidden' }}>
-                <View style={{ height: '100%', borderRadius: 2, width: '0%', backgroundColor: '#059669' }} />
-              </View>
-            </View>
-          ))}
-        </View>
-      </ScrollView>
-    </View>
+    <div style={{ display: "flex", flexDirection: "column", gap: BAR_GAP }}>
+      {Array.from({ length: NUM_BARS }).map((_, i) => {
+        const pct = ((NUM_BARS - 1 - i) / (NUM_BARS - 1)) * 100;
+        let color: string;
+        const isRed   = pct > 85;
+        const isAmber = pct > 60 && pct <= 85;
+
+        if (pct <= level) {
+          if (isRed)        color = C.barRed;
+          else if (isAmber) color = C.barAmber;
+          else              color = C.barGreen;
+        } else {
+          if (isRed)        color = C.barGhostRed;
+          else if (isAmber) color = C.barGhostAmber;
+          else              color = C.barGhostGreen;
+        }
+
+        return (
+          <div
+            key={i}
+            style={{ width: 11, height: BAR_H, borderRadius: 1, backgroundColor: color, flexShrink: 0 }}
+          />
+        );
+      })}
+    </div>
   );
+}
+
+// ── SCALE COL WITH DASHES ─────────────────────────────────────────────────────
+function ScaleCol({ side = "left" }: { side?: "left" | "right" }) {
+  return (
+    <div style={{
+      height: METER_H,
+      display: "flex",
+      flexDirection: "column",
+      justifyContent: "space-between",
+      alignItems: side === "left" ? "flex-end" : "flex-start",
+      minWidth: 34,
+      flexShrink: 0,
+    }}>
+      {SCALE_LABELS.map((v, i) => (
+        <div
+          key={i}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 3,
+            flexDirection: side === "left" ? "row" : "row-reverse",
+          }}
+        >
+          <span style={{ fontSize: 11, fontWeight: 700, color: "#e5e7eb", fontFamily: "monospace", lineHeight: "8px" }}>{v}</span>
+          {/* Visible white tick dash */}
+          <div style={{
+            width: 8,
+            height: 1.5,
+            backgroundColor: "#9ca3af",
+            borderRadius: 1,
+            flexShrink: 0,
+          }} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── FADER — simple rectangle with top/bottom halves like reference ─────────────
+function Fader({ value, onChange }: { value: number; onChange: (v: number) => void }) {
+  const dragging = useRef(false);
+  const startY = useRef(0);
+  const startVal = useRef(value);
+
+  const onMouseDown = useCallback((e: React.MouseEvent) => {
+    dragging.current = true;
+    startY.current = e.clientY;
+    startVal.current = value;
+    e.preventDefault();
+    e.stopPropagation();
+  }, [value]);
+
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      if (!dragging.current) return;
+      const dy = e.clientY - startY.current;
+      const delta = -(dy / METER_H) * 100;
+      onChange(Math.min(100, Math.max(0, startVal.current + delta)));
+    };
+    const onUp = () => { dragging.current = false; };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+  }, [onChange]);
+
+  const travel = METER_H - HANDLE_H - 4;
+  const bottom = (value / 100) * travel;
+  const totalW = HANDLE_W + 16;
+
+  return (
+    <div style={{ width: totalW, height: METER_H, position: "relative", flexShrink: 0 }}>
+      {/* Dark thick track */}
+      <div style={{
+        position: "absolute",
+        left: "50%",
+        transform: "translateX(-50%)",
+        top: 0, bottom: 0,
+        width: 5,
+        backgroundColor: "#1a1f28",
+        borderRadius: 3,
+        boxShadow: "inset 0 0 4px rgba(0,0,0,0.9)",
+      }} />
+
+      {/* Fader handle — plain rectangle, top half dark-grey, bottom half light-grey */}
+      <div
+        onMouseDown={onMouseDown}
+        style={{
+          position: "absolute",
+          bottom: bottom + 2,
+          left: "50%",
+          transform: "translateX(-50%)",
+          width: HANDLE_W + 10,
+          height: HANDLE_H,
+          borderRadius: 3,
+          cursor: "ns-resize",
+          userSelect: "none",
+          border: "1px solid #555b65",
+          overflow: "hidden",
+          boxShadow: "0 3px 8px rgba(0,0,0,0.8)",
+        }}
+      >
+        {/* Top half — darker */}
+        <div style={{
+          height: "50%",
+          background: "linear-gradient(180deg, #6e757e 0%, #9ca3ac 100%)",
+        }} />
+        {/* Divider line */}
+        <div style={{ height: 1.5, backgroundColor: "#3a3f48" }} />
+        {/* Bottom half — lighter */}
+        <div style={{
+          height: "50%",
+          background: "linear-gradient(180deg, #d0d5db 0%, #f0f2f4 100%)",
+        }} />
+      </div>
+    </div>
+  );
+}
+
+// ── CHANNEL STRIP ─────────────────────────────────────────────────────────────
+function ChannelStrip({ ch, onChange, availableDevices }: { ch: Channel; onChange: (c: ChannelChanges) => void; availableDevices?: string[] }) {
+  const upd = (c: ChannelChanges) => onChange(c);
+  const isMic1 = ch.id === 1;
+  const bottomLabel = ch.label.replace(/^\d+\.\s*/, "");
+
+  return (
+    <div style={{
+      width: 200,
+      backgroundColor: C.strip,
+      border: `1px solid ${C.stripBorder}`,
+      borderRadius: 10,
+      padding: "14px 12px 12px",
+      display: "flex",
+      flexDirection: "column",
+      flexShrink: 0,
+    }}>
+      {/* HEADER */}
+      <div style={{ textAlign: "center", marginBottom: 10 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: C.text, fontFamily: "monospace" }}>{ch.label}</div>
+        <div style={{ fontSize: 11, color: C.textMuted, fontFamily: "monospace" }}>({ch.name})</div>
+      </div>
+
+      {/* ON AIR + INPUT ROW */}
+      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 12 }}>
+        {isMic1 ? (
+          <button
+            onClick={() => upd({ isOnAir: !ch.isOnAir })}
+            style={{
+              backgroundColor: ch.isOnAir ? C.onAirGreen : C.offlineGray,
+              border: "none",
+              padding: "6px 10px",
+              borderRadius: 4,
+              flexShrink: 0,
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              gap: 5,
+            }}
+          >
+            <div style={{
+              width: 7, height: 7, borderRadius: 4,
+              backgroundColor: ch.isOnAir ? "#ffffff" : "#9ca3af",
+              boxShadow: ch.isOnAir ? "0 0 5px #ffffff" : "none",
+            }} />
+            <span style={{ fontSize: 10, fontWeight: 800, color: "#fff", fontFamily: "monospace" }}>
+              {ch.isOnAir ? "ON AIR" : "GO LIVE"}
+            </span>
+          </button>
+        ) : (
+          ch.isOnAir
+            ? <div style={{ backgroundColor: C.onAirGreen, padding: "4px 8px", borderRadius: 4, flexShrink: 0 }}>
+                <span style={{ fontSize: 10, fontWeight: 800, color: "#fff", fontFamily: "monospace" }}>ON AIR</span>
+              </div>
+            : <div style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: "#374151", flexShrink: 0 }} />
+        )}
+        <div style={{ flex: 1, position: "relative" }}>
+          <select
+            value={ch.input}
+            disabled={ch.input === "Unassigned"}
+            onChange={e => upd({ input: e.target.value })}
+            style={{
+              width: "100%",
+              backgroundColor: C.inputBg,
+              border: `1px solid ${C.inputBorder}`,
+              borderRadius: 5,
+              padding: "5px 22px 5px 8px",
+              fontSize: 10,
+              color: ch.input === "Unassigned" ? C.offlineGray : C.textLight,
+              fontFamily: "monospace",
+              cursor: ch.input === "Unassigned" ? "not-allowed" : "pointer",
+              appearance: "none",
+              WebkitAppearance: "none",
+              outline: "none",
+            }}
+          >
+            {(() => {
+              const opts = availableDevices?.length ? availableDevices : INPUT_OPTIONS;
+              if (!opts.includes("Unassigned")) {
+                return ["Unassigned", ...opts];
+              }
+              return opts;
+            })().map(opt => (
+              <option key={opt} value={opt} style={{ backgroundColor: "#1a2235" }}>{opt}</option>
+            ))}
+          </select>
+          <span style={{ position: "absolute", right: 7, top: "50%", transform: "translateY(-50%)", fontSize: 9, color: C.textMuted, pointerEvents: "none" }}>▼</span>
+        </div>
+      </div>
+
+      {/* GAIN */}
+      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 12, justifyContent: "center" }}>
+        <span style={{ fontSize: 10, color: C.textLight, fontFamily: "monospace", minWidth: 28 }}>GAIN</span>
+        <Knob value={ch.gain} onChange={v => upd({ gain: v })} size={48} />
+        <span style={{ fontSize: 15, color: C.text, fontFamily: "monospace", fontWeight: 700, minWidth: 36 }}>
+          {Math.round(ch.gain)}%
+        </span>
+      </div>
+
+      {/* HI / MID / LOW */}
+      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 12 }}>
+        {(["hi","mid","low"] as const).map(band => (
+          <div key={band} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+            <span style={{ fontSize: 10, color: C.textLight, fontFamily: "monospace" }}>{band.toUpperCase()}</span>
+            <Knob value={ch[band]} onChange={v => upd({ [band]: v } as ChannelChanges)} size={38} />
+          </div>
+        ))}
+      </div>
+
+      {/* SOLO / MUTE */}
+      <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+        <button
+          onClick={() => upd({ soloed: !ch.soloed })}
+          style={{
+            flex: 1, padding: "9px 0", borderRadius: 6, cursor: "pointer",
+            fontSize: 13, fontWeight: 600, fontFamily: "monospace",
+            backgroundColor: ch.soloed ? C.soloActive : C.soloBg,
+            border: `1px solid ${ch.soloed ? C.soloActiveBorder : C.soloBorder}`,
+            color: ch.soloed ? C.soloActiveText : "#d1d5db",
+          }}
+        >Solo</button>
+        <button
+          onClick={() => upd({ muted: !ch.muted })}
+          style={{
+            flex: 1, padding: "9px 0", borderRadius: 6, cursor: "pointer",
+            fontSize: 13, fontWeight: 600, fontFamily: "monospace",
+            backgroundColor: ch.muted ? C.muteActive : "transparent",
+            border: `1.5px solid ${C.muteDefault}`,
+            color: ch.muted ? "#fca5a5" : C.muteDefault,
+          }}
+        >Mute</button>
+      </div>
+
+      {/* FADER + SCALE + VU METERS + BOTTOM LABEL — all in one column */}
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "stretch" }}>
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 0 }}>
+          {/* Left scale — numbers + dashes pointing right toward fader */}
+          <ScaleCol side="left" />
+          <Fader value={ch.fader} onChange={v => upd({ fader: v })} />
+          {/* Right scale — dashes pointing left toward fader, numbers right toward VU */}
+          <ScaleCol side="right" />
+          <div style={{ display: "flex", gap: 3, marginLeft: 2 }}>
+            <VuBars level={ch.muted ? 0 : ch.vuL} />
+            <VuBars level={ch.muted ? 0 : ch.vuR} />
+          </div>
+        </div>
+
+        {/* BOTTOM LABEL — centered under entire row */}
+        <div style={{
+          textAlign: "center",
+          marginTop: 10,
+          fontSize: 13,
+          color: "#e5e7eb",
+          fontFamily: "monospace",
+          fontWeight: 700,
+          letterSpacing: "0.04em",
+          width: "100%",
+        }}>
+          {bottomLabel}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── MAIN ──────────────────────────────────────────────────────────────────────
+type DualMicSetupProps = {
+  channels?: Channel[];
+  onChannelChange?: (id: number, changes: ChannelChanges) => void;
+  availableDevices?: string[];
 };
+
+export default function DualMicSetup({ channels: extChannels, onChannelChange: extChange, availableDevices }: DualMicSetupProps) {
+  const [channels, setChannels] = useState<Channel[]>(extChannels || DEFAULT_CHANNELS);
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      setChannels(prev => prev.map(ch => {
+        const audioActive = ch.isOnAir && !ch.muted && ch.fader > 0 && ch.gain > 0;
+
+        if (!audioActive) {
+          return {
+            ...ch,
+            vuL: ch.vuL > 0.5 ? ch.vuL * 0.75 : 0,
+            vuR: ch.vuR > 0.5 ? ch.vuR * 0.75 : 0,
+          };
+        }
+
+        const target = Math.min(97, (ch.fader / 100) * (ch.gain / 100) * 130);
+        const jitter = (Math.random() - 0.5) * 18;
+        const next = Math.min(97, Math.max(0, target + jitter));
+
+        return {
+          ...ch,
+          vuL: ch.vuL + (next - ch.vuL) * 0.4,
+          vuR: ch.vuR + ((next + (Math.random() - 0.5) * 6) - ch.vuR) * 0.4,
+        };
+      }));
+    }, 110);
+    return () => clearInterval(id);
+  }, []);
+
+  const handleChange = useCallback((id: number, changes: ChannelChanges) => {
+    setChannels(prev => prev.map(ch => ch.id !== id ? ch : { ...ch, ...changes }));
+    extChange?.(id, changes);
+  }, [extChange]);
+
+  return (
+    <div style={{
+      backgroundColor: C.bg,
+      padding: 12,
+      borderRadius: 12,
+      border: "1px solid #1a2235",
+      overflowX: "auto",
+      width: "100%",
+    }}>
+      <div style={{ display: "flex", flexDirection: "row", gap: 8, minWidth: "max-content" }}>
+        {channels.map(ch => (
+          <ChannelStrip key={ch.id} ch={ch} availableDevices={availableDevices} onChange={changes => handleChange(ch.id, changes)} />
+        ))}
+      </div>
+    </div>
+  );
+}

@@ -4,12 +4,12 @@ import { rjBackend } from '../services/rjBackend';
 import { RjApi } from '../../../services/api/rjApi';
 import { debouncedRjSync, syncMicsToBackend } from '../services/rjApiSync';
 import { applyStudioRecordToStore } from '../utils/studioMapper';
-import { audioEngineManager } from '../../../services/audioEngine/core/AudioEngineManager';
+import { isDesktop } from '../../../utils/platform';
 
 export const useMicSystem = (addNotification: (type: "request" | "system" | "alert", message: string) => void) => {
   const { rjStudio, updateRjStudioState } = useAppStore();
   const [newMicName, setNewMicName] = useState("");
-  const micManager = audioEngineManager.getMicrophoneManager();
+  const [availableDevices, setAvailableDevices] = useState<string[]>([]);
   
   const allMics = rjStudio.rjMics;
   const showAddMicModal = rjStudio.showAddMicModal;
@@ -26,29 +26,65 @@ export const useMicSystem = (addNotification: (type: "request" | "system" | "ale
 
   // Bind WebAudio state to UI state
   useEffect(() => {
-    // We bind the `meter` events from the engines to update the local state.
-    // To avoid React rerender spam, we could throttle this, but for now we just map the volume property in the store.
-    const cleanups: (() => void)[] = [];
+    if (isDesktop()) {
+      if ((window as any).audio?.getAvailableInputDevices) {
+        (window as any).audio.getAvailableInputDevices().then(setAvailableDevices);
+      }
 
-    allMics.forEach(mic => {
-      const engine = micManager.getOrCreateMic(mic.id);
-      
-      const onMeter = (vol: number) => {
-        // Find current mic state, we must dispatch carefully or we'll loop
-        // We'll update the mic volume without triggering backend syncs
-        // Because volume meters should NOT be synced over network
-        updateRjStudioState({
-          rjMics: useAppStore.getState().rjStudio.rjMics.map(m => 
-            m.id === mic.id ? { ...m, volume: vol } : m
-          ) as never
+      const handleMetersUpdate = (data: any) => {
+        const payloadMics = data.mics || {};
+        const { rjStudio } = useAppStore.getState();
+        let changed = false;
+        
+        const newMics = rjStudio.rjMics.map(m => {
+          const level = payloadMics[m.id]?.peak?.[0] ? Math.floor(payloadMics[m.id].peak[0] * 100) : 0;
+          if (m.volume !== level) {
+             changed = true;
+             return { ...m, volume: level };
+          }
+          return m;
         });
+
+        if (changed) {
+          useAppStore.getState().updateRjStudioState({ rjMics: newMics as never });
+        }
       };
 
-      engine.events.on('meter', onMeter);
-      cleanups.push(() => engine.events.off('meter', onMeter));
-    });
+      if ((window as any).audio?.on) {
+        (window as any).audio.on('meters:update', handleMetersUpdate);
+      }
 
-    return () => cleanups.forEach(c => c());
+      return () => {
+        if ((window as any).audio?.off) {
+          (window as any).audio.off('meters:update', handleMetersUpdate);
+        }
+      };
+    } else {
+      navigator.mediaDevices.enumerateDevices().then(devices => {
+        setAvailableDevices(devices.filter(d => d.kind === 'audioinput').map(d => d.label || d.deviceId));
+      }).catch(() => {});
+
+      const { audioEngineManager } = require('../../../services/audioEngine/core/AudioEngineManager');
+      const micManager = audioEngineManager.getMicrophoneManager();
+      const cleanups: (() => void)[] = [];
+
+      allMics.forEach(mic => {
+        const engine = micManager.getOrCreateMic(mic.id);
+        
+        const onMeter = (vol: number) => {
+          updateRjStudioState({
+            rjMics: useAppStore.getState().rjStudio.rjMics.map(m => 
+              m.id === mic.id ? { ...m, volume: vol } : m
+            ) as never
+          });
+        };
+
+        engine.events.on('meter', onMeter);
+        cleanups.push(() => engine.events.off('meter', onMeter));
+      });
+
+      return () => cleanups.forEach(c => c());
+    }
   }, [allMics.map(m => m.id).join(',')]); // Only rebind when mic list changes
 
   const addNewMic = async () => {
@@ -87,16 +123,26 @@ export const useMicSystem = (addNotification: (type: "request" | "system" | "ale
     const mic = allMics.find(m => m.id === micId);
     const nextActive = mic ? !mic.isActive : false;
 
-    const engine = micManager.getOrCreateMic(micId);
-    if (nextActive) {
-      try {
-        await engine.enable();
-      } catch (e) {
-        addNotification('alert', 'Microphone permission denied.');
-        return;
+    if (isDesktop()) {
+      if (nextActive) {
+        await (window as any).audio.enableMicrophone(mic?.input || "");
+      } else {
+        await (window as any).audio.disableMicrophone();
       }
     } else {
-      engine.disable();
+      const { audioEngineManager } = require('../../../services/audioEngine/core/AudioEngineManager');
+      const micManager = audioEngineManager.getMicrophoneManager();
+      const engine = micManager.getOrCreateMic(micId);
+      if (nextActive) {
+        try {
+          await engine.enable();
+        } catch (e) {
+          addNotification('alert', 'Microphone permission denied.');
+          return;
+        }
+      } else {
+        engine.disable();
+      }
     }
 
     const sid = rjBackend.getStudioId();
@@ -125,8 +171,14 @@ export const useMicSystem = (addNotification: (type: "request" | "system" | "ale
     const mic = allMics.find(m => m.id === micId);
     const nextMuted = mic ? !mic.isMuted : true;
     
-    const engine = micManager.getOrCreateMic(micId);
-    engine.setMute(nextMuted);
+    if (isDesktop()) {
+      await (window as any).audio.muteMicrophone(nextMuted);
+    } else {
+      const { audioEngineManager } = require('../../../services/audioEngine/core/AudioEngineManager');
+      const micManager = audioEngineManager.getMicrophoneManager();
+      const engine = micManager.getOrCreateMic(micId);
+      engine.setMute(nextMuted);
+    }
 
     const sid = rjBackend.getStudioId();
     if (rjBackend.isEnabled() && sid && mic) {
@@ -143,10 +195,26 @@ export const useMicSystem = (addNotification: (type: "request" | "system" | "ale
     ));
   };
 
+  const updateMicDevice = async (micId: string, deviceName: string) => {
+    setMics((prev) => prev.map(m => 
+      m.id === micId ? { ...m, input: deviceName } : m
+    ));
+    
+    // If it's active and we are native, immediately switch device
+    const mic = allMics.find(m => m.id === micId);
+    if (mic?.isActive && isDesktop()) {
+      await (window as any).audio.enableMicrophone(deviceName);
+    }
+  };
+
   const removeExtraMic = async (micId: string) => {
     const micToRemove = allMics.find(m => m.id === micId && m.id !== "mic1" && m.id !== "mic2");
     
-    micManager.removeMic(micId);
+    if (!isDesktop()) {
+      const { audioEngineManager } = require('../../../services/audioEngine/core/AudioEngineManager');
+      const micManager = audioEngineManager.getMicrophoneManager();
+      micManager.removeMic(micId);
+    }
 
     const sid = rjBackend.getStudioId();
     if (rjBackend.isEnabled() && sid) {
@@ -170,6 +238,7 @@ export const useMicSystem = (addNotification: (type: "request" | "system" | "ale
     mainMics,
     extraMics,
     allMics,
+    availableDevices,
     showAddMicModal,
     setShowAddMicModal,
     newMicName,
@@ -177,6 +246,7 @@ export const useMicSystem = (addNotification: (type: "request" | "system" | "ale
     addNewMic,
     toggleMicActive,
     toggleMicMute,
+    updateMicDevice,
     removeExtraMic,
   };
 };
