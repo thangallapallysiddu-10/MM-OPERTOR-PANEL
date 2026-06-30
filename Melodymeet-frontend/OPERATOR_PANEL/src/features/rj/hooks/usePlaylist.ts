@@ -390,16 +390,59 @@ export const usePlaylist = ({
   };
 
   const clearPlaylist = async () => {
+    const pl = getPlaylistFromStore();
+    const trackA = rjStudio.playerATrack;
+    const trackB = rjStudio.playerBTrack;
+
+    const hasA = trackA && pl.some((t) => t.title.toLowerCase() === trackA.title.toLowerCase());
+    const hasB = trackB && pl.some((t) => t.title.toLowerCase() === trackB.title.toLowerCase());
+
     const sid = rjBackend.getStudioId();
     if (rjBackend.isEnabled() && sid) {
       try { await RjApi.clearPlaylist(sid); } catch { /* local */ }
     }
     setPlaylistDirect([]);
+
+    const patch: Record<string, any> = {};
+
+    if (hasA) {
+      audio.stop('A').catch(() => {});
+      audio.unloadDeck('A').catch(() => {});
+      patch.playerATrack = null;
+      patch.isPlayingA = false;
+      if (rjStudio.activePlayer === 'A') patch.currentTrack = null;
+      if (rjBackend.isEnabled() && sid) {
+        RjApi.dualPlayerAction(sid, { action: 'clear_deck', playerId: 'A' }).catch(() => {});
+      }
+    }
+
+    if (hasB) {
+      audio.stop('B').catch(() => {});
+      audio.unloadDeck('B').catch(() => {});
+      patch.playerBTrack = null;
+      patch.isPlayingB = false;
+      if (rjStudio.activePlayer === 'B') patch.currentTrack = null;
+      if (rjBackend.isEnabled() && sid) {
+        RjApi.dualPlayerAction(sid, { action: 'clear_deck', playerId: 'B' }).catch(() => {});
+      }
+    }
+
+    if (Object.keys(patch).length > 0) {
+      updateRjStudioState(patch as never);
+    }
+
     addNotification('system', '🗑️ Playlist cleared');
   };
 
   const removeFromPlaylist = async (id: number) => {
-    const item = getPlaylistFromStore().find((t) => t.id === id);
+    const pl = getPlaylistFromStore();
+    const item = pl.find((t) => t.id === id);
+    const trackA = rjStudio.playerATrack;
+    const trackB = rjStudio.playerBTrack;
+
+    const hasA = item && trackA && item.title.toLowerCase() === trackA.title.toLowerCase();
+    const hasB = item && trackB && item.title.toLowerCase() === trackB.title.toLowerCase();
+
     const sid  = rjBackend.getStudioId();
 
     if (rjBackend.isEnabled() && sid) {
@@ -408,15 +451,54 @@ export const usePlaylist = ({
           await RjApi.removePlaylistItem(sid, item.serverId);
         } catch (err) {
           console.error('[removeFromPlaylist] backend delete failed:', err);
-          /* local fallback — still remove from store below */
         }
-      } else {
-        // Item has no serverId — it was never persisted to the backend,
-        // so no API call is needed. Removing from store only is correct.
-        console.warn('[usePlaylist] removeFromPlaylist: item has no serverId, removing locally only', item);
       }
     }
-    setPlaylistDirect(getPlaylistFromStore().filter((t) => t.id !== id));
+    setPlaylistDirect(pl.filter((t) => t.id !== id));
+
+    const patch: Record<string, any> = {};
+
+    if (hasA) {
+      audio.stop('A').catch(() => {});
+      audio.unloadDeck('A').catch(() => {});
+      patch.playerATrack = null;
+      patch.isPlayingA = false;
+      if (rjStudio.activePlayer === 'A') patch.currentTrack = null;
+      if (rjBackend.isEnabled() && sid) {
+        RjApi.dualPlayerAction(sid, { action: 'clear_deck', playerId: 'A' }).catch(() => {});
+      }
+    }
+
+    if (hasB) {
+      audio.stop('B').catch(() => {});
+      audio.unloadDeck('B').catch(() => {});
+      patch.playerBTrack = null;
+      patch.isPlayingB = false;
+      if (rjStudio.activePlayer === 'B') patch.currentTrack = null;
+      if (rjBackend.isEnabled() && sid) {
+        RjApi.dualPlayerAction(sid, { action: 'clear_deck', playerId: 'B' }).catch(() => {});
+      }
+    }
+
+    if (Object.keys(patch).length > 0) {
+      updateRjStudioState(patch as never);
+    }
+  };
+
+  const reorderPlaylistItems = async (startIndex: number, endIndex: number) => {
+    const pl = [...getPlaylistFromStore()];
+    const [removed] = pl.splice(startIndex, 1);
+    pl.splice(endIndex, 0, removed);
+
+    const sid = rjBackend.getStudioId();
+    if (rjBackend.isEnabled() && sid) {
+      try {
+        await RjApi.reorderPlaylist(sid, { playlist: pl });
+      } catch (err) {
+        console.error('[reorderPlaylistItems] backend update failed:', err);
+      }
+    }
+    setPlaylistDirect(pl);
   };
 
   // ── START ─────────────────────────────────────────────────────────────────
@@ -800,6 +882,7 @@ export const usePlaylist = ({
     uploadAndAddLocalFile,
     clearPlaylist,
     removeFromPlaylist,
+    reorderPlaylistItems,
     // Playback controls
     startPlaylist,
     pausePlaylist,

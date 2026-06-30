@@ -31,6 +31,11 @@ const {
   // Guest Control Center
   muteGuestSlot,
   setGuestVolume,
+  // Legacy approval-flow guests
+  getLegacyGuests,
+  joinLegacyGuest,
+  respondToLegacyGuest,
+  removeLegacyGuest,
   // Notifications
   getNotifications,
   createNotification,
@@ -70,6 +75,13 @@ publicGuestRouter.post(
 
 router.use('/guest-slots', publicGuestRouter);
 
+// POST /api/podcasts/live/guests/join — public legacy approval-flow join
+router.post(
+  '/live/guests/join',
+  validateRequest(schemas.podcastGuestJoin, 'body'),
+  joinLegacyGuest,
+);
+
 // ---------------------------------------------------------------------------
 // All routes below this line require a valid operator JWT
 // ---------------------------------------------------------------------------
@@ -96,7 +108,12 @@ router.delete('/recordings/:id', deleteRecording);
 router.get('/live/sessions', getPodcastLiveSessions);
 router.post('/live/start', validateRequest(schemas.podcastLiveStart, 'body'), startLiveSession);
 router.post('/live/stop', validateRequest(schemas.podcastLiveStop, 'body'), stopLiveSession);
-router.put('/live/viewers', updateLiveViewers);
+router.put('/live/viewers', validateRequest(schemas.podcastLiveViewers, 'body'), updateLiveViewers);
+
+// Legacy approval-flow guest routes (authenticated — operator only)
+router.get('/live/guests/:roomId', getLegacyGuests);
+router.put('/live/guests/:id/respond', validateRequest(schemas.podcastGuestRespond, 'body'), respondToLegacyGuest);
+router.delete('/live/guests/:id', removeLegacyGuest);
 
 // Notification routes
 router.get('/notifications', getNotifications);
@@ -131,7 +148,7 @@ router.patch(
   validateRequest(schemas.podcastGuestSlotMuteBody, 'body'),
   muteGuestSlot,
 );
-router.patch('/guest-slots/slots/:roomId/:slotId/volume', setGuestVolume);
+router.patch('/guest-slots/slots/:roomId/:slotId/volume', validateRequest(schemas.podcastGuestSlotVolumeBody, 'body'), setGuestVolume);
 
 // Episode routes must stay after fixed sub-routes, otherwise /recordings,
 // /live, /notifications, and /mics are parsed as :id.
@@ -141,7 +158,7 @@ router.post('/upload', podcastUpload, uploadEpisode);
 router.post('/cover-art', coverUpload, uploadCoverArt);
 router.get('/:id', getPodcastById);
 router.put('/:id', validateRequest(schemas.podcastUpdate, 'body'), updatePodcast);
-router.put('/:id/status', updatePodcastStatus);
+router.put('/:id/status', validateRequest(schemas.podcastStatus, 'body'), updatePodcastStatus);
 router.delete('/:id', deletePodcast);
 
 module.exports = router;

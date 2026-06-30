@@ -8,7 +8,7 @@ interface DualPlayerProps {
   playerB: Track | null;
   isPlayingA: boolean;
   isPlayingB: boolean;
-  activePlayer: "A" | "B";
+  activePlayer: "A" | "B" | null;
   crossfadeValue: number;
   isCrossfading: boolean;
   isDarkMode: boolean;
@@ -226,78 +226,57 @@ export const DualPlayer: React.FC<DualPlayerProps> = ({
     });
   };
 
-  // Animation for progress - uses saved progress when resuming
+  // Poll playback position from the Unified Audio SDK in real time
   useEffect(() => {
-    if (isPlayingA && activePlayer === 'A') {
-      // Start from saved progress (where it left off)
-      const startProgress = savedProgressA;
-      progressAnimA.setValue(startProgress);
-      setProgressA(startProgress);
-      
-      Animated.timing(progressAnimA, {
-        toValue: 100,
-        duration: (getSongDuration(playerA) * 1000 * tempoRatioA) * ((100 - startProgress) / 100),
-        easing: Easing.linear,
-        useNativeDriver: false,
-      }).start();
-    } else {
-      progressAnimA.stopAnimation();
-      // Save current progress when paused/stopped
-      if (isPlayingA === false && activePlayer === 'A') {
-        setSavedProgressA(progressA);
-      }
-    }
-  }, [isPlayingA, activePlayer, playerA, tempoRatioA]);
+    let active = true;
+    const interval = setInterval(async () => {
+      if (!active) return;
+      try {
+        const snapshot = await audio.getPlaybackSnapshot().catch(() => null);
+        if (!snapshot) return;
 
-  useEffect(() => {
-    if (isPlayingB && activePlayer === 'B') {
-      // Start from saved progress (where it left off)
-      const startProgress = savedProgressB;
-      progressAnimB.setValue(startProgress);
-      setProgressB(startProgress);
-      
-      Animated.timing(progressAnimB, {
-        toValue: 100,
-        duration: (getSongDuration(playerB) * 1000 * tempoRatioB) * ((100 - startProgress) / 100),
-        easing: Easing.linear,
-        useNativeDriver: false,
-      }).start();
-    } else {
-      progressAnimB.stopAnimation();
-      // Save current progress when paused/stopped
-      if (isPlayingB === false && activePlayer === 'B') {
-        setSavedProgressB(progressB);
-      }
-    }
-  }, [isPlayingB, activePlayer, playerB, tempoRatioB]);
+        if (snapshot.deckA && playerA) {
+          const duration = getSongDuration(playerA);
+          if (duration > 0) {
+            const pct = Math.min(100, Math.max(0, (snapshot.deckA.position / duration) * 100));
+            setProgressA(pct);
+            if (loopActiveA && pct >= loopEndA) {
+              const startSec = (duration * loopStartA) / 100;
+              await audio.seek('A', startSec);
+            }
+          }
+        } else {
+          setProgressA(0);
+        }
 
-  useEffect(() => {
-    const listenerA = progressAnimA.addListener((value) => {
-      setProgressA(value.value);
-      if (loopActiveA && value.value >= loopEndA) {
-        progressAnimA.setValue(loopStartA);
+        if (snapshot.deckB && playerB) {
+          const duration = getSongDuration(playerB);
+          if (duration > 0) {
+            const pct = Math.min(100, Math.max(0, (snapshot.deckB.position / duration) * 100));
+            setProgressB(pct);
+            if (loopActiveB && pct >= loopEndB) {
+              const startSec = (duration * loopStartB) / 100;
+              await audio.seek('B', startSec);
+            }
+          }
+        } else {
+          setProgressB(0);
+        }
+      } catch (err) {
+        // ignore
       }
-    });
-    const listenerB = progressAnimB.addListener((value) => {
-      setProgressB(value.value);
-      if (loopActiveB && value.value >= loopEndB) {
-        progressAnimB.setValue(loopStartB);
-      }
-    });
+    }, 250);
 
     return () => {
-      progressAnimA.removeListener(listenerA);
-      progressAnimB.removeListener(listenerB);
+      active = false;
+      clearInterval(interval);
     };
-  }, [loopActiveA, loopActiveB, loopEndA, loopEndB, loopStartA, loopStartB]);
+  }, [playerA?.id, playerB?.id, isPlayingA, isPlayingB, loopActiveA, loopActiveB, loopStartA, loopStartB, loopEndA, loopEndB]);
 
-  // Reset saved progress when new track is loaded or track changes
+  // Reset progress when a new track is loaded
   useEffect(() => {
     if (playerA) {
-      // Reset saved progress when new track loads
-      setSavedProgressA(0);
       setProgressA(0);
-      progressAnimA.setValue(0);
       setCueMarkerA(0);
       setSavedCuesA([]);
       setLoopActiveA(false);
@@ -307,9 +286,7 @@ export const DualPlayer: React.FC<DualPlayerProps> = ({
 
   useEffect(() => {
     if (playerB) {
-      setSavedProgressB(0);
       setProgressB(0);
-      progressAnimB.setValue(0);
       setCueMarkerB(0);
       setSavedCuesB([]);
       setLoopActiveB(false);
@@ -320,19 +297,6 @@ export const DualPlayer: React.FC<DualPlayerProps> = ({
   // Handle Play - sets this deck as active and moves crossfader
   const handlePlay = (playerId: 'A' | 'B') => {
     onPlayUrlInPlayer(playerId);
-    
-    // Don't reset progress - it will start from saved position
-    // Only reset if song is at end
-    if (playerId === 'A' && progressA >= 99) {
-      setProgressA(0);
-      setSavedProgressA(0);
-      progressAnimA.setValue(0);
-    }
-    if (playerId === 'B' && progressB >= 99) {
-      setProgressB(0);
-      setSavedProgressB(0);
-      progressAnimB.setValue(0);
-    }
     
     // Move crossfader to this deck's side
     if (playerId === 'A') {
@@ -345,36 +309,11 @@ export const DualPlayer: React.FC<DualPlayerProps> = ({
   // Jump to cue marker position (saves position and plays from there)
   const handleJumpToCue = (playerId: 'A' | 'B', track: Track | null | undefined) => {
     const cuePosition = playerId === 'A' ? cueMarkerA : cueMarkerB;
-
     recallCue(playerId);
-
     if (playerId === 'A') {
       setProgressA(cuePosition);
-      setSavedProgressA(cuePosition);
-      progressAnimA.setValue(cuePosition);
-      // If playing, continue from cue point
-      if (isPlayingA && activePlayer === 'A') {
-        progressAnimA.stopAnimation();
-        Animated.timing(progressAnimA, {
-          toValue: 100,
-          duration: (getSongDuration(playerA) * 1000 * tempoRatioA) * ((100 - cuePosition) / 100),
-          easing: Easing.linear,
-          useNativeDriver: false,
-        }).start();
-      }
     } else {
       setProgressB(cuePosition);
-      setSavedProgressB(cuePosition);
-      progressAnimB.setValue(cuePosition);
-      if (isPlayingB && activePlayer === 'B') {
-        progressAnimB.stopAnimation();
-        Animated.timing(progressAnimB, {
-          toValue: 100,
-          duration: (getSongDuration(playerB) * 1000 * tempoRatioB) * ((100 - cuePosition) / 100),
-          easing: Easing.linear,
-          useNativeDriver: false,
-        }).start();
-      }
     }
   };
 
@@ -402,33 +341,12 @@ export const DualPlayer: React.FC<DualPlayerProps> = ({
   // Jump to saved cue point
   const handleJumpToSavedCue = (playerId: 'A' | 'B', cuePoint: number, track: Track | null | undefined) => {
     recallCue(playerId);
-
     if (playerId === 'A') {
       setProgressA(cuePoint);
       setSavedProgressA(cuePoint);
-      progressAnimA.setValue(cuePoint);
-      if (isPlayingA && activePlayer === 'A') {
-        progressAnimA.stopAnimation();
-        Animated.timing(progressAnimA, {
-          toValue: 100,
-          duration: (getSongDuration(playerA) * 1000 * tempoRatioA) * ((100 - cuePoint) / 100),
-          easing: Easing.linear,
-          useNativeDriver: false,
-        }).start();
-      }
     } else {
       setProgressB(cuePoint);
       setSavedProgressB(cuePoint);
-      progressAnimB.setValue(cuePoint);
-      if (isPlayingB && activePlayer === 'B') {
-        progressAnimB.stopAnimation();
-        Animated.timing(progressAnimB, {
-          toValue: 100,
-          duration: (getSongDuration(playerB) * 1000 * tempoRatioB) * ((100 - cuePoint) / 100),
-          easing: Easing.linear,
-          useNativeDriver: false,
-        }).start();
-      }
     }
   };
 
@@ -468,7 +386,6 @@ export const DualPlayer: React.FC<DualPlayerProps> = ({
       setSyncedDeck('B');
       setProgressB(progressA);
       setSavedProgressB(progressA);
-      progressAnimB.setValue(progressA);
       setCueMarkerB(cueMarkerA);
       setTempoRatioB(ratio || 1);
       onSync?.('A', 'B', ratio || 1);
@@ -478,7 +395,6 @@ export const DualPlayer: React.FC<DualPlayerProps> = ({
       setSyncedDeck('A');
       setProgressA(progressB);
       setSavedProgressA(progressB);
-      progressAnimA.setValue(progressB);
       setCueMarkerA(cueMarkerB);
       setTempoRatioA(ratio || 1);
       onSync?.('B', 'A', ratio || 1);
@@ -504,7 +420,6 @@ export const DualPlayer: React.FC<DualPlayerProps> = ({
     if (playerId === 'A') {
       setProgressA(0);
       setSavedProgressA(0);
-      progressAnimA.setValue(0);
       setCueMarkerA(0);
       setSavedCuesA([]);
       setLoopActiveA(false);
@@ -517,7 +432,6 @@ export const DualPlayer: React.FC<DualPlayerProps> = ({
     } else {
       setProgressB(0);
       setSavedProgressB(0);
-      progressAnimB.setValue(0);
       setCueMarkerB(0);
       setSavedCuesB([]);
       setLoopActiveB(false);
@@ -626,11 +540,9 @@ export const DualPlayer: React.FC<DualPlayerProps> = ({
 
   // Crossfader handler
   const handleCrossfaderTouch = (event: any) => {
-    const { locationY, layout } = event.nativeEvent;
-    if (layout && layout.height) {
-      const percentage = Math.min(100, Math.max(0, (1 - locationY / layout.height) * 100));
-      onCrossfade(percentage);
-    }
+    const { locationY } = event.nativeEvent;
+    const percentage = Math.min(100, Math.max(0, (1 - locationY / 110) * 100));
+    onCrossfade(percentage);
   };
 
   // Render single deck
@@ -665,9 +577,18 @@ export const DualPlayer: React.FC<DualPlayerProps> = ({
           });
         }
       },
-      onPanResponderRelease: () => {
+      onPanResponderRelease: (evt) => {
         if (playerId === 'A') setIsDraggingCueA(false);
         else setIsDraggingCueB(false);
+        if (progressBarRef.current) {
+          progressBarRef.current.measure((x: number, y: number, width: number, height: number, pageX: number, pageY: number) => {
+            const touchX = evt.nativeEvent.pageX;
+            const percentage = Math.min(100, Math.max(0, ((touchX - pageX) / width) * 100));
+            const duration = getSongDuration(track);
+            const targetSeconds = (duration * percentage) / 100;
+            audio.seek(playerId, targetSeconds).catch(() => {});
+          });
+        }
       },
     });
     

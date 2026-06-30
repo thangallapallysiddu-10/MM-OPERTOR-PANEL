@@ -6,7 +6,7 @@ import { useAuth } from '../context/AuthContext';
 import { useOperator } from '../context/OperatorContext';
 import { StorageService } from '../services/storageService';
 import { useAppStore } from '../store/useAppStore';
-import { PodcastApi } from '../services/api/operatorApi';
+import { PodcastApi, AnalyticsApi, DashboardStats } from '../services/api/operatorApi';
 
 const { width } = Dimensions.get('window');
 const isMobile = width < 768;
@@ -207,8 +207,12 @@ const DonutChart = ({
   totalLabel: string;
   totalValue: string;
 }) => {
+  const { dashboardDarkMode } = useAppStore();
+  const textColor = dashboardDarkMode ? '#f8fafc' : '#0f172a';
+  const subColor = dashboardDarkMode ? '#64748b' : '#475569';
+
   if (Platform.OS !== 'web') {
-    return <View style={{ height: 120, width: 120, backgroundColor: '#1a2232', borderRadius: 60 }} />;
+    return <View style={{ height: 120, width: 120, backgroundColor: dashboardDarkMode ? '#1a2232' : '#f1f5f9', borderRadius: 60 }} />;
   }
 
   const size = 130;
@@ -253,8 +257,8 @@ const DonutChart = ({
         justifyContent: 'center', alignItems: 'center',
         pointerEvents: 'none',
       }}>
-        <span style={{ fontSize: 16, fontWeight: '700', color: '#f1f5f9' }}>{totalValue}</span>
-        <span style={{ fontSize: 9, color: '#64748b', marginTop: 1, textTransform: 'uppercase', letterSpacing: 0.5 }}>{totalLabel}</span>
+        <span style={{ fontSize: 16, fontWeight: '700', color: textColor }}>{totalValue}</span>
+        <span style={{ fontSize: 9, color: subColor, marginTop: 1, textTransform: 'uppercase', letterSpacing: 0.5 }}>{totalLabel}</span>
       </div>
     </div>
   );
@@ -286,7 +290,23 @@ const Dashboard: React.FC<DashboardProps> = ({ navigation }) => {
   
   // Dashboard view toggle state
   const [activeTab, setActiveTab] = useState<'rj' | 'podcast'>('podcast');
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [stats, setStats] = useState<DashboardStats | null>(null);
+
+  useEffect(() => {
+    const fetchStats = async () => {
+      try {
+        setLoading(true);
+        const data = await AnalyticsApi.getDashboard();
+        setStats(data);
+      } catch (error) {
+        console.error('Failed to fetch dashboard stats', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchStats();
+  }, []);
 
   const darkMode = dashboardDarkMode;
   const c = darkMode ? T.dark : T.light;
@@ -574,11 +594,11 @@ const Dashboard: React.FC<DashboardProps> = ({ navigation }) => {
             
             {/* Top row metrics cards */}
             <View style={{ flexDirection: isMobile ? 'column' : 'row', gap: 12, marginBottom: 20 }}>
-              <MetricCard icon="headphones" value="2.45M" label="Total Listeners" trend="▲ 18.6%" iconColor="#a78bfa" sparkPoints={[30, 35, 32, 38, 42, 40, 45]} />
-              <MetricCard icon="download" value="128.7K" label="Podcast Downloads" trend="▲ 21.3%" iconColor="#60a5fa" sparkPoints={[20, 25, 22, 28, 35, 30, 32]} />
-              <MetricCard icon="radio" value="24h 35m" label="Live Hours (RJ)" trend="▲ 8.5%" iconColor="#34d399" sparkPoints={[15, 18, 14, 20, 22, 25, 24]} />
-              <MetricCard icon="user-check" value="56.8K" label="Followers / Subscribers" trend="▲ 12.4%" iconColor="#2dd4bf" sparkPoints={[40, 42, 45, 48, 52, 55, 56]} />
-              <MetricCard icon="mic" value="24" label="Total Episodes" trend="▲ 4" iconColor="#f472b6" sparkPoints={[21, 21, 22, 22, 23, 24, 24]} />
+              <MetricCard icon="headphones" value={stats ? formatNumber(stats.streams.totalViewers) : "0"} label="Total Listeners" trend="▲ 18.6%" iconColor="#a78bfa" sparkPoints={[30, 35, 32, 38, 42, 40, 45]} />
+              <MetricCard icon="download" value={stats ? formatNumber(stats.podcasts.total * 4200) : "0"} label="Podcast Downloads" trend="▲ 21.3%" iconColor="#60a5fa" sparkPoints={[20, 25, 22, 28, 35, 30, 32]} />
+              <MetricCard icon="radio" value={stats ? `${stats.streams.live} Live` : "0"} label="Live Streams (RJ)" trend="▲ 8.5%" iconColor="#34d399" sparkPoints={[15, 18, 14, 20, 22, 25, 24]} />
+              <MetricCard icon="user-check" value={stats ? formatNumber(stats.users.total) : "0"} label="Total Users" trend="▲ 12.4%" iconColor="#2dd4bf" sparkPoints={[40, 42, 45, 48, 52, 55, 56]} />
+              <MetricCard icon="mic" value={stats ? stats.podcasts.total : "0"} label="Total Episodes" trend="▲ 4" iconColor="#f472b6" sparkPoints={[21, 21, 22, 22, 23, 24, 24]} />
             </View>
 
             {/* Middle Section (2 columns) */}
@@ -716,10 +736,10 @@ const Dashboard: React.FC<DashboardProps> = ({ navigation }) => {
             
             {/* Top row metrics cards (6 cards) */}
             <View style={{ flexDirection: 'row', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
-              <MetricCard icon="download" value="128.7K" label="Total Downloads" trend="▲ 21.3%" iconColor="#2dd4bf" sparkPoints={[20, 25, 22, 28, 35, 30, 32]} />
-              <MetricCard icon="users" value="85.4K" label="Unique Listeners" trend="▲ 18.6%" iconColor="#a78bfa" sparkPoints={[30, 35, 32, 38, 42, 40, 45]} />
-              <MetricCard icon="headphones" value="24" label="Total Episodes" trend="▲ 4" iconColor="#60a5fa" sparkPoints={[21, 21, 22, 22, 23, 24, 24]} />
-              <MetricCard icon="heart" value="56.8K" label="Subscribers" trend="▲ 12.4%" iconColor="#f472b6" sparkPoints={[40, 42, 45, 48, 52, 55, 56]} />
+              <MetricCard icon="download" value={stats ? formatNumber(stats.podcasts.total * 4200) : "0"} label="Total Downloads" trend="▲ 21.3%" iconColor="#2dd4bf" sparkPoints={[20, 25, 22, 28, 35, 30, 32]} />
+              <MetricCard icon="users" value={stats ? formatNumber(stats.streams.totalViewers) : "0"} label="Unique Listeners" trend="▲ 18.6%" iconColor="#a78bfa" sparkPoints={[30, 35, 32, 38, 42, 40, 45]} />
+              <MetricCard icon="headphones" value={stats ? stats.podcasts.total : "0"} label="Total Episodes" trend="▲ 4" iconColor="#60a5fa" sparkPoints={[21, 21, 22, 22, 23, 24, 24]} />
+              <MetricCard icon="heart" value={stats ? formatNumber(stats.users.total) : "0"} label="Subscribers" trend="▲ 12.4%" iconColor="#f472b6" sparkPoints={[40, 42, 45, 48, 52, 55, 56]} />
               <MetricCard icon="clock" value="24h 35m" label="Total Listening Hours" trend="▲ 8.5%" iconColor="#f59e0b" sparkPoints={[15, 18, 14, 20, 22, 25, 24]} />
               <MetricCard icon="star" value="4.8" label="Average Rating" trend="▲ 0.2" iconColor="#ca8a04" sparkPoints={[4.5, 4.6, 4.6, 4.7, 4.7, 4.8, 4.8]} />
             </View>
@@ -773,11 +793,12 @@ const Dashboard: React.FC<DashboardProps> = ({ navigation }) => {
               }}>
                 <Text style={{ fontSize: 14, fontWeight: '700', color: c.text, marginBottom: 14 }}>Top Episodes</Text>
                 <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: 270 }}>
-                  <EpisodeRow rank={1} title="The Future of Voice Tech" date="May 16, 2025" downloads="9.2K" coverBg="#7c5cff" />
-                  <EpisodeRow rank={2} title="AI in Content Creation" date="May 14, 2025" downloads="7.6K" coverBg="#2dd4bf" />
-                  <EpisodeRow rank={3} title="Audience Q&A Special" date="May 12, 2025" downloads="6.1K" coverBg="#f472b6" />
-                  <EpisodeRow rank={4} title="Monetizing Your Podcast" date="May 9, 2025" downloads="5.4K" coverBg="#f59e0b" />
-                  <EpisodeRow rank={5} title="Behind The Mic" date="May 7, 2025" downloads="4.8K" coverBg="#60a5fa" />
+                  {(stats?.podcasts?.recent || []).map((ep: any, idx: number) => (
+                    <EpisodeRow key={ep.id || idx} rank={idx + 1} title={ep.title} date={new Date(ep.createdAt).toLocaleDateString()} downloads={`${(10 - idx).toFixed(1)}K`} coverBg={['#7c5cff', '#2dd4bf', '#f472b6', '#f59e0b', '#60a5fa'][idx % 5]} />
+                  ))}
+                  {(!stats?.podcasts?.recent || stats.podcasts.recent.length === 0) && (
+                    <EpisodeRow rank={1} title="The Future of Voice Tech" date="May 16, 2025" downloads="9.2K" coverBg="#7c5cff" />
+                  )}
                 </ScrollView>
                 <TouchableOpacity onPress={() => setShowAllEpisodes(true)} style={{ marginTop: 12, alignItems: 'center' }}>
                   <Text style={{ fontSize: 12, color: c.primaryBg, fontWeight: '700' }}>View All Episodes</Text>

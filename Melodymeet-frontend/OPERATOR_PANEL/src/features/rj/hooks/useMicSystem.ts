@@ -24,12 +24,65 @@ export const useMicSystem = (addNotification: (type: "request" | "system" | "ale
     debouncedRjSync('mics', async () => { await syncMicsToBackend(); });
   };
 
+  const updateMicDevice = async (micId: string, deviceName: string) => {
+    setMics((prev) => {
+      const exists = prev.some(m => m.id === micId);
+      if (exists) {
+        return prev.map(m => m.id === micId ? { ...m, input: deviceName } : m);
+      } else {
+        const idx = parseInt(micId.replace('mic', '')) - 1 || 0;
+        const baseLabels = ['RJ Mic 1', 'Guest Mic 1', 'Guest Mic 2', 'Guest Mic 3', 'Call-in Mic 1'];
+        const baseNames = ['Sejal', 'Leo', 'Riya', 'Arjun', 'Live Caller'];
+        return [...prev, {
+          id: micId,
+          name: baseNames[idx] || 'Guest',
+          label: baseLabels[idx] || 'Guest Mic',
+          isActive: false,
+          isMuted: true,
+          input: deviceName,
+          volume: 0,
+        }];
+      }
+    });
+
+    // If the mic is currently active, switch its input device via SDK
+    const mic = rjStudio.rjMics.find(m => m.id === micId);
+    if (mic?.isActive) {
+      await audio.enableMicrophone(deviceName).catch(() => {});
+    }
+  };
+
   // Bind audio engine state to UI state via unified SDK
   useEffect(() => {
-    // Enumerate input devices via SDK (Desktop: IPC, Web: MediaDevices API)
-    audio.getAvailableInputDevices()
-      .then(setAvailableDevices)
-      .catch(() => {});
+    const refreshDevices = () => {
+      audio.getAvailableInputDevices()
+        .then((devices) => {
+          setAvailableDevices(devices);
+          
+          // Auto-reconnect disturbed active microphones
+          const { rjStudio: currentRjStudio } = useAppStore.getState();
+          const activeMic = currentRjStudio.rjMics.find((m: any) => m.isActive);
+          if (activeMic && devices.length > 0) {
+            const currentInput = (activeMic as any).input;
+            // Check if current input got disturbed/disconnected (not in the list anymore)
+            if (currentInput && !devices.includes(currentInput)) {
+              // Connect to the first available input device
+              const newDevice = devices[0];
+              updateMicDevice(activeMic.id, newDevice);
+              addNotification("alert", `🎙️ Microphone "${currentInput}" disturbed! Auto-reconnected to "${newDevice}".`);
+            }
+          }
+        })
+        .catch(() => {});
+    };
+
+    // Initial check
+    refreshDevices();
+
+    // Listen for plug/unplug of audio devices
+    if (typeof navigator !== 'undefined' && navigator.mediaDevices) {
+      navigator.mediaDevices.addEventListener('devicechange', refreshDevices);
+    }
 
     // Subscribe to meter updates via SDK event bus
     const handleMetersUpdate = (data: any) => {
@@ -63,6 +116,9 @@ export const useMicSystem = (addNotification: (type: "request" | "system" | "ale
 
     return () => {
       audio.off('meters:update', handleMetersUpdate);
+      if (typeof navigator !== 'undefined' && navigator.mediaDevices) {
+        navigator.mediaDevices.removeEventListener('devicechange', refreshDevices);
+      }
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [allMics.map(m => m.id).join(',')]); // Only rebind when mic list changes
@@ -101,11 +157,12 @@ export const useMicSystem = (addNotification: (type: "request" | "system" | "ale
 
   const toggleMicActive = async (micId: string) => {
     const mic = allMics.find(m => m.id === micId);
-    const nextActive = mic ? !mic.isActive : false;
+    const nextActive = mic ? !mic.isActive : true;
 
     // Route through SDK — Desktop → window.audio IPC, Web → POST /audio/microphone/enable
     if (nextActive) {
-      await audio.enableMicrophone((mic as any)?.input || '').catch(() => {});
+      const inputDev = mic ? (mic as any).input : '';
+      await audio.enableMicrophone(inputDev || '').catch(() => {});
     } else {
       await audio.disableMicrophone().catch(() => {});
     }
@@ -124,12 +181,24 @@ export const useMicSystem = (addNotification: (type: "request" | "system" | "ale
       }
     }
 
-    setMics((prev) => prev.map(m =>
-      m.id === micId ? { ...m, isActive: !m.isActive } : m
-    ));
-    if (mic) {
-      addNotification("system", `${mic.name} ${mic.isActive ? 'left the stage' : 'joined the stage'}!`);
-    }
+    setMics((prev) => {
+      const exists = prev.some(m => m.id === micId);
+      if (exists) {
+        return prev.map(m => m.id === micId ? { ...m, isActive: !m.isActive } : m);
+      } else {
+        const idx = parseInt(micId.replace('mic', '')) - 1 || 0;
+        const baseLabels = ['RJ Mic 1', 'Guest Mic 1', 'Guest Mic 2', 'Guest Mic 3', 'Call-in Mic 1'];
+        const baseNames = ['Sejal', 'Leo', 'Riya', 'Arjun', 'Live Caller'];
+        return [...prev, {
+          id: micId,
+          name: baseNames[idx] || 'Guest',
+          label: baseLabels[idx] || 'Guest Mic',
+          isActive: nextActive,
+          isMuted: true,
+          volume: 0,
+        }];
+      }
+    });
   };
 
   const toggleMicMute = async (micId: string) => {
@@ -140,7 +209,7 @@ export const useMicSystem = (addNotification: (type: "request" | "system" | "ale
     await audio.muteMicrophone(nextMuted).catch(() => {});
 
     const sid = rjBackend.getStudioId();
-    if (rjBackend.isEnabled() && sid && mic) {
+    if (rjBackend.isEnabled() && sid) {
       try {
         const studio = await RjApi.patchMic(sid, { micId, isMuted: nextMuted });
         applyStudioRecordToStore(studio);
@@ -149,22 +218,28 @@ export const useMicSystem = (addNotification: (type: "request" | "system" | "ale
         /* local */
       }
     }
-    setMics((prev) => prev.map(m =>
-      m.id === micId ? { ...m, isMuted: nextMuted } : m
-    ));
+
+    setMics((prev) => {
+      const exists = prev.some(m => m.id === micId);
+      if (exists) {
+        return prev.map(m => m.id === micId ? { ...m, isMuted: nextMuted } : m);
+      } else {
+        const idx = parseInt(micId.replace('mic', '')) - 1 || 0;
+        const baseLabels = ['RJ Mic 1', 'Guest Mic 1', 'Guest Mic 2', 'Guest Mic 3', 'Call-in Mic 1'];
+        const baseNames = ['Sejal', 'Leo', 'Riya', 'Arjun', 'Live Caller'];
+        return [...prev, {
+          id: micId,
+          name: baseNames[idx] || 'Guest',
+          label: baseLabels[idx] || 'Guest Mic',
+          isActive: false,
+          isMuted: nextMuted,
+          volume: 0,
+        }];
+      }
+    });
   };
 
-  const updateMicDevice = async (micId: string, deviceName: string) => {
-    setMics((prev) => prev.map(m =>
-      m.id === micId ? { ...m, input: deviceName } : m
-    ));
 
-    // If the mic is currently active, switch its input device via SDK
-    const mic = allMics.find(m => m.id === micId);
-    if (mic?.isActive) {
-      await audio.enableMicrophone(deviceName).catch(() => {});
-    }
-  };
 
   const removeExtraMic = async (micId: string) => {
     const micToRemove = allMics.find(m => m.id === micId && m.id !== "mic1" && m.id !== "mic2");

@@ -211,6 +211,7 @@ export const PodcastPlaylistModal: React.FC<PodcastPlaylistModalProps> = ({
   const [fetchingMetadata, setFetchingMetadata] = useState(false);
   const [internalPlayingId, setInternalPlayingId] = useState<number | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
+  const playbackAudioRef = useRef<HTMLAudioElement | null>(null);
 
   const currentlyPlayingTrackId = externalPlayingId !== undefined ? externalPlayingId : internalPlayingId;
 
@@ -251,6 +252,13 @@ export const PodcastPlaylistModal: React.FC<PodcastPlaylistModalProps> = ({
 
   // ─── STOP AUDIO ────────────────────────────────────────────────
   const stopAudio = () => {
+    if (playbackAudioRef.current) {
+      try {
+        playbackAudioRef.current.pause();
+        playbackAudioRef.current.src = '';
+      } catch (e) {}
+      playbackAudioRef.current = null;
+    }
     setIsPlaying(false);
     setInternalPlayingId(null);
   };
@@ -332,14 +340,39 @@ export const PodcastPlaylistModal: React.FC<PodcastPlaylistModalProps> = ({
       setIsPlaying(true);
       setInternalPlayingId(track.id);
       onPlayTrack?.(track);
+
+      try {
+        const audioInstance = new Audio(src);
+        audioInstance.loop = false;
+        audioInstance.volume = 0.8;
+        audioInstance.play().catch(err => {
+          console.error("Audio playback error:", err);
+          Alert.alert("Playback Error", "Browser blocked playback. Interact with the page and try again.");
+          stopAudio();
+        });
+        audioInstance.addEventListener('ended', () => {
+          stopAudio();
+        });
+        playbackAudioRef.current = audioInstance;
+      } catch (e) {
+        console.error("Failed to initialize audio:", e);
+      }
       return;
     }
 
     // SCENARIO 2: Toggling play/pause status for the same track
     if (isPlaying) {
       setIsPlaying(false);
+      if (playbackAudioRef.current) {
+        try { playbackAudioRef.current.pause(); } catch (e) {}
+      }
     } else {
       setIsPlaying(true);
+      if (playbackAudioRef.current) {
+        try {
+          playbackAudioRef.current.play().catch(() => {});
+        } catch (e) {}
+      }
     }
   };
 

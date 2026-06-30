@@ -27,6 +27,8 @@ import RemoteGuestsPanel from './sections/RemoteGuestsPanel';
 
 import { EpisodeManager } from './sections/EpisodeManager';
 import { LiveSetupModal } from './modals/LiveSetupModal';
+import { PodcastApi } from '../../services/api/operatorApi';
+import { mapEpisodeFromApi } from './utils/podcastMappers';
 
 // Import modals
 import NotificationsModal from '../../components/modals/NotificationsModal';
@@ -282,22 +284,43 @@ export default function PodcastUpload({ navigation, view = 'studio' }: any) {
 
   // ─── Episode Manager State ──────────────────────────────────────────────
   const [showEpisodeManager, setShowEpisodeManager] = useState(false);
+  const [showEndLiveConfirm, setShowEndLiveConfirm] = useState(false);
+  const [saveSuccessMsg, setSaveSuccessMsg] = useState<string | null>(null);
 
   const podcasts = podcast.podcastEpisodes || [];
 
   // ─── Episode Handlers ──────────────────────────────────────────────────
-  const handlePublishEpisode = (episodeData: any) => {
-    console.log('📢 Publishing episode:', episodeData);
-    addPodcastEpisode(episodeData);
-    Alert.alert('Success', 'Episode published successfully!');
-    setShowEpisodeManager(false);
+  // ─── Episode Handlers ──────────────────────────────────────────────────
+  const handlePublishEpisode = async ({ formData, payload, isLocal, onProgress }: any) => {
+    try {
+      let saved: any;
+      if (isLocal) {
+        saved = await PodcastApi.upload(formData, onProgress);
+      } else {
+        saved = await PodcastApi.create(payload);
+      }
+      const mapped = mapEpisodeFromApi(saved);
+      addPodcastEpisode(mapped);
+      setShowEpisodeManager(false);
+    } catch (error) {
+      throw error;
+    }
   };
 
-  const handleSaveDraft = (episodeData: any) => {
-    console.log('💾 Saving draft:', episodeData);
-    addPodcastEpisode(episodeData);
-    Alert.alert('Success', 'Draft saved successfully!');
-    setShowEpisodeManager(false);
+  const handleSaveDraft = async ({ formData, payload, isLocal, onProgress }: any) => {
+    try {
+      let saved: any;
+      if (isLocal) {
+        saved = await PodcastApi.upload(formData, onProgress);
+      } else {
+        saved = await PodcastApi.create(payload);
+      }
+      const mapped = mapEpisodeFromApi(saved);
+      addPodcastEpisode(mapped);
+      setShowEpisodeManager(false);
+    } catch (error) {
+      throw error;
+    }
   };
 
   const handleDeleteEpisode = (id: number) => {
@@ -322,22 +345,17 @@ export default function PodcastUpload({ navigation, view = 'studio' }: any) {
   });
 
   const [liveStats, setLiveStats] = useState<LiveStats>({
-    listeners: 2800,
+    listeners: liveViewers,
     bitrate: 192,
     storageGB: 12.4,
   });
 
   useEffect(() => {
-    if (!isLive) return;
-    const interval = setInterval(() => {
-      setLiveStats(prev => ({
-        listeners: Math.max(0, prev.listeners + Math.floor(Math.random() * 21) - 10),
-        bitrate: [128, 192, 256, 320][Math.floor(Math.random() * 4)],
-        storageGB: Math.round((prev.storageGB + 0.1) * 10) / 10,
-      }));
-    }, 3000);
-    return () => clearInterval(interval);
-  }, [isLive]);
+    setLiveStats(prev => ({
+      ...prev,
+      listeners: liveViewers,
+    }));
+  }, [liveViewers]);
 
   const formatLiveDuration = (seconds: number) => {
     const h = Math.floor(seconds / 3600);
@@ -349,40 +367,11 @@ export default function PodcastUpload({ navigation, view = 'studio' }: any) {
   // ─── Podcast Session State ──────────────────────────────────────────────────
   const [chapters, setChapters] = useState<{ time: string; label: string }[]>([]);
   const [segments, setSegments] = useState<string[]>([]);
-  const [elapsed, setElapsed] = useState(0);
+  const elapsed = isLive ? liveSeconds : recordingSeconds;
   const [isPaused, setIsPaused] = useState(false);
   const [sessionStatus, setSessionStatus] = useState<"recording" | "paused" | "stopped" | "ready">("ready");
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  useEffect(() => {
-    if (isRecording && !isPaused) {
-      if (!intervalRef.current) {
-        intervalRef.current = setInterval(() => {
-          setElapsed((prev) => Math.min(prev + 1, 14400));
-        }, 1000);
-      }
-    } else {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-        intervalRef.current = null;
-      }
-    }
-    return () => {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-        intervalRef.current = null;
-      }
-    };
-  }, [isRecording, isPaused]);
-
-  useEffect(() => {
-    if (isRecording && recordingSeconds > 0) {
-      setElapsed(recordingSeconds);
-    }
-  }, [recordingSeconds, isRecording]);
 
   const handleStartRecording = () => {
-    setElapsed(0);
     setChapters([]);
     setSegments([]);
     setIsPaused(false);
@@ -406,27 +395,40 @@ export default function PodcastUpload({ navigation, view = 'studio' }: any) {
     setIsPaused(false);
     setSessionStatus("stopped");
     stopRecording();
-    if (intervalRef.current) {
-      clearInterval(intervalRef.current);
-      intervalRef.current = null;
-    }
   };
 
-  const handleSaveRecording = () => {
-    if (elapsed === 0) return;
-    const finalDuration = formatLiveDuration(elapsed);
-    const mockSize = `${((elapsed * 320) / 8 / 1024).toFixed(1)} MB`;
-    const finalRecording = {
-      id: Date.now(),
-      name: `Recording_${new Date().toLocaleDateString().replace(/\//g, '-')}_${formatLiveDuration(elapsed).replace(/:/g, '')}`,
-      duration: finalDuration,
-      size: mockSize,
-      chapters: [...chapters],
-      segments: [...segments],
-      timestamp: Date.now()
-    };
+  const handleSaveRecording = async () => {
+    const finalDuration = formatLiveDuration(recordingSeconds);
+    if (recordingSeconds > 0) {
+      try {
+        const mockBlob = new Blob(['dummy audio content'], { type: 'audio/wav' });
+        const formData = new FormData();
+        formData.append('file', mockBlob as any, `recording_${Date.now()}.wav`);
+        formData.append('duration', finalDuration);
+        formData.append('durationSeconds', recordingSeconds.toString());
+        
+        const saved = await PodcastApi.uploadRecording(formData);
+        
+        const finalRecording = {
+          id: saved?.id || Date.now(),
+          name: saved?.name || `Recording_${new Date().toLocaleDateString().replace(/\\//g, '-')}_${formatLiveDuration(recordingSeconds).replace(/:/g, '')}`,
+          duration: finalDuration,
+          size: saved?.size || `${((recordingSeconds * 320) / 8 / 1024).toFixed(1)} MB`,
+          uri: saved?.fileUrl || 'mock-recording-file',
+        };
+        useAppStore.getState().addRecording(finalRecording);
+      } catch (err) {
+        console.error('Failed to save recording to backend', err);
+      }
+    }
+
+    setSaveSuccessMsg(`Successfully Saved! Duration: ${finalDuration}`);
+    setTimeout(() => {
+      setSaveSuccessMsg(null);
+    }, 4000);
+
     // Pass to your store if needed
-    setElapsed(0);
+    useAppStore.getState().updatePodcastState({ recordingSeconds: 0 });
     setChapters([]);
     setSegments([]);
     setIsPaused(false);
@@ -464,16 +466,42 @@ export default function PodcastUpload({ navigation, view = 'studio' }: any) {
   const [showProfile, setShowProfile] = useState(false);
 
   // ─── Notification Handlers ────────────────────────────────────────────
-  const markAsRead = (id: string) => {
+  useEffect(() => {
+    PodcastApi.getNotifications()
+      .then(data => {
+        setNotificationsList(data.map((n: any) => ({
+          ...n,
+          time: new Date(n.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        })));
+      })
+      .catch(console.error);
+  }, []);
+
+  const markAsRead = async (id: string) => {
     setNotificationsList(prev => prev.map(n => n.id === id ? { ...n, read: true } : n));
+    try {
+      await PodcastApi.markNotificationRead(id);
+    } catch (err) {
+      console.error(err);
+    }
   };
 
-  const markAllAsRead = () => {
+  const markAllAsRead = async () => {
     setNotificationsList(prev => prev.map(n => ({ ...n, read: true })));
+    try {
+      await PodcastApi.markAllNotificationsRead();
+    } catch (err) {
+      console.error(err);
+    }
   };
 
-  const clearAllNotifications = () => {
+  const clearAllNotifications = async () => {
     setNotificationsList([]);
+    try {
+      await PodcastApi.clearNotifications();
+    } catch (err) {
+      console.error(err);
+    }
   };
 
   const addNotification = (notifTitle: string, message: string, type: NotificationItem['type']) => {
@@ -608,15 +636,9 @@ export default function PodcastUpload({ navigation, view = 'studio' }: any) {
                 <Feather name="user" size={17} color={isDarkMode ? "#94A3B8" : "#475569"} />
               </TouchableOpacity>
 
-              <TouchableOpacity
-                onPress={handleLogout}
-                style={{ width: 36, height: 36, borderRadius: 9, borderWidth: 1, borderColor: "#DC2626", justifyContent: 'center', alignItems: 'center' }}
-              >
-                <Feather name="log-out" size={17} color="#DC2626" />
-              </TouchableOpacity>
 
               <TouchableOpacity
-                onPress={isLive ? stopLiveStream : startLiveSetup}
+                onPress={isLive ? () => setShowEndLiveConfirm(true) : startLiveSetup}
                 style={{
                   paddingHorizontal: 14,
                   paddingVertical: 8,
@@ -646,24 +668,7 @@ export default function PodcastUpload({ navigation, view = 'studio' }: any) {
           </View>
         </View>
 
-        {/* ── Live Banner ─────────────────────────────────────────── */}
-        {isLive && (
-          <View style={{
-            flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', alignSelf: 'flex-start',
-            gap: 10, paddingHorizontal: 16, paddingVertical: 10, marginBottom: 14,
-            borderRadius: 99, backgroundColor: C.text,
-          }}>
-            <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: C.danger }} />
-            <Text style={{ fontSize: 14, fontWeight: '700', color: C.background }}>ON AIR</Text>
-            <Text style={{ fontSize: 14, fontWeight: '600', color: C.background, fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace' }}>
-              {formatLiveDuration(liveSeconds)}
-            </Text>
-            <Text style={{ fontSize: 13, fontWeight: '600', color: C.background }}>Listeners: {liveViewers}</Text>
-            <TouchableOpacity onPress={shareLiveLink} style={{ paddingHorizontal: 8, paddingVertical: 4, borderRadius: 99, backgroundColor: `${C.background}40` }}>
-              <Feather name="share-2" size={14} color={C.background} />
-            </TouchableOpacity>
-          </View>
-        )}
+
 
         {/* ── Split Grid Columns ──────────────────────────────────── */}
         <View style={{ flexDirection: isMobile ? 'column' : 'row', gap: 16, marginBottom: 16 }}>
@@ -689,7 +694,17 @@ export default function PodcastUpload({ navigation, view = 'studio' }: any) {
                       : 'http://localhost:8081/podcast/guest'
                   }
                   onGenerateLink={(seat, url) => console.log(`Generated link for ${seat.name}: ${url}`)}
-                  onDisconnect={(seat) => console.log(`Disconnected ${seat.name}`)}
+                  onDisconnect={async (seat) => {
+                    try {
+                      const rId = roomLink ? roomLink.match(/roomId=([A-Z0-9]+)/i)?.[1] : undefined;
+                      if (rId && seat.slotId) {
+                        await PodcastApi.kickGuestSlot(rId, seat.slotId);
+                        Alert.alert('Success', `Kicked guest from slot ${seat.label}`);
+                      }
+                    } catch (e: any) {
+                      Alert.alert('Error', e?.message || 'Failed to disconnect guest.');
+                    }
+                  }}
                   onCancelInvite={(seat) => console.log(`Cancelled invite for ${seat.name}`)}
                   onAddGuest={() => console.log('Add guest clicked')}
                 />
@@ -752,6 +767,7 @@ export default function PodcastUpload({ navigation, view = 'studio' }: any) {
             handleAddChapter={handleAddChapter}
             segments={segments}
             chapters={chapters}
+            recordingSeconds={recordingSeconds}
           />
         </View>
 
@@ -762,21 +778,9 @@ export default function PodcastUpload({ navigation, view = 'studio' }: any) {
 
 
 
-        {/* ─── LIVE SETUP MODAL ────────────────────────────────────── */}
         <LiveSetupModal
           visible={showLiveSetup}
-          liveSetupStep={liveSetupStep}
-          micTestComplete={micTestComplete}
-          internetTestComplete={internetTestComplete}
-          liveTitle={liveTitle}
-          liveDescription={liveDescription}
-          onTitleChange={setLiveTitle}
-          onDescriptionChange={setLiveDescription}
-          onTestMicrophone={testMicrophone}
-          onTestInternet={testInternetSpeed}
-          onProceedToReady={proceedToReady}
           onStartLive={startLiveStream}
-          onBackToTest={() => setLiveSetupStep('test')}
           onClose={() => setShowLiveSetup(false)}
           colors={C}
         />
@@ -819,7 +823,241 @@ export default function PodcastUpload({ navigation, view = 'studio' }: any) {
           isDarkMode={isDarkMode}
         />
 
+        {/* ─── END LIVE SESSION CONFIRMATION MODAL ─────────────────── */}
+        <Modal
+          visible={showEndLiveConfirm}
+          transparent={true}
+          animationType="fade"
+          onRequestClose={() => setShowEndLiveConfirm(false)}
+        >
+          <View style={{
+            flex: 1,
+            backgroundColor: 'rgba(0, 0, 0, 0.82)',
+            justifyContent: 'center',
+            alignItems: 'center',
+            padding: 16,
+          }}>
+            <View style={{
+              width: '100%',
+              maxWidth: 400,
+              backgroundColor: '#1E293B',
+              borderRadius: 16,
+              borderWidth: 1,
+              borderColor: '#334155',
+              padding: 24,
+              alignItems: 'center',
+              shadowColor: '#000',
+              shadowOffset: { width: 0, height: 6 },
+              shadowOpacity: 0.4,
+              shadowRadius: 12,
+              elevation: 10,
+            }}>
+              {/* Alert Triangle Icon */}
+              <View style={{
+                width: 54,
+                height: 54,
+                borderRadius: 27,
+                backgroundColor: 'rgba(239, 68, 68, 0.15)',
+                justifyContent: 'center',
+                alignItems: 'center',
+                marginBottom: 16,
+              }}>
+                <Feather name="alert-triangle" size={24} color="#EF4444" />
+              </View>
+
+              <Text style={{
+                fontSize: 18,
+                fontWeight: '700',
+                color: '#F1F5F9',
+                textAlign: 'center',
+                marginBottom: 8,
+              }}>
+                End Live Session?
+              </Text>
+
+              <Text style={{
+                fontSize: 13,
+                color: '#94A3B8',
+                textAlign: 'center',
+                lineHeight: 18,
+                marginBottom: 20,
+              }}>
+                Are you sure you want to end the session? This will stop the live stream and disconnect all listeners.
+              </Text>
+
+              {/* Timer Duration Panel */}
+              <View style={{
+                backgroundColor: '#0F172A',
+                borderRadius: 12,
+                paddingHorizontal: 20,
+                paddingVertical: 12,
+                width: '100%',
+                borderWidth: 1,
+                borderColor: '#1E293B',
+                alignItems: 'center',
+                marginBottom: 24,
+              }}>
+                <Text style={{
+                  fontSize: 10,
+                  fontWeight: '600',
+                  color: '#64748B',
+                  textTransform: 'uppercase',
+                  letterSpacing: 1,
+                  marginBottom: 4,
+                }}>
+                  Session Duration
+                </Text>
+                <Text style={{
+                  fontSize: 24,
+                  fontWeight: '700',
+                  color: '#F8FAFC',
+                  fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
+                }}>
+                  {formatLiveDuration(liveSeconds)}
+                </Text>
+              </View>
+
+              {/* Action Buttons Row */}
+              <View style={{
+                flexDirection: 'row',
+                gap: 12,
+                width: '100%',
+              }}>
+                <TouchableOpacity
+                  onPress={() => setShowEndLiveConfirm(false)}
+                  style={{
+                    flex: 1,
+                    height: 40,
+                    borderRadius: 8,
+                    backgroundColor: '#334155',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                  }}
+                >
+                  <Text style={{
+                    fontSize: 13,
+                    fontWeight: '600',
+                    color: '#cbd5e1',
+                  }}>
+                    Cancel
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  onPress={() => {
+                    setShowEndLiveConfirm(false);
+                    stopLiveStream(true);
+                  }}
+                  style={{
+                    flex: 1,
+                    height: 40,
+                    borderRadius: 8,
+                    backgroundColor: '#EF4444',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                  }}
+                >
+                  <Text style={{
+                    fontSize: 13,
+                    fontWeight: '700',
+                    color: '#FFFFFF',
+                  }}>
+                    End Session
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+
       </ScrollView>
+
+      {/* ─── RECORDING SAVE SUCCESS TOAST ───────────────────────── */}
+      {saveSuccessMsg && (
+        Platform.OS === 'web' && typeof document !== 'undefined'
+          ? require('react-dom').createPortal(
+              <View style={{
+                position: 'fixed' as any,
+                top: 24,
+                left: '50%',
+                marginLeft: -180,
+                width: 360,
+                backgroundColor: '#1E293B',
+                borderRadius: 12,
+                borderWidth: 1.5,
+                borderColor: '#10B981',
+                paddingHorizontal: 18,
+                paddingVertical: 12,
+                flexDirection: 'row',
+                alignItems: 'center',
+                zIndex: 999999,
+                shadowColor: '#10B981',
+                shadowOffset: { width: 0, height: 4 },
+                shadowOpacity: 0.3,
+                shadowRadius: 10,
+              }}>
+                <View style={{
+                  width: 28,
+                  height: 28,
+                  borderRadius: 14,
+                  backgroundColor: 'rgba(16, 185, 129, 0.15)',
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                  marginRight: 12,
+                }}>
+                  <Feather name="check" size={16} color="#10B981" />
+                </View>
+                <Text style={{
+                  fontSize: 13,
+                  fontWeight: '600',
+                  color: '#F8FAFC',
+                  flex: 1,
+                }}>
+                  {saveSuccessMsg}
+                </Text>
+              </View>,
+              document.body
+            )
+          : (
+              <View style={{
+                position: 'absolute',
+                top: 80,
+                left: '50%',
+                marginLeft: -180,
+                width: 360,
+                backgroundColor: '#1E293B',
+                borderRadius: 12,
+                borderWidth: 1.5,
+                borderColor: '#10B981',
+                paddingHorizontal: 18,
+                paddingVertical: 12,
+                flexDirection: 'row',
+                alignItems: 'center',
+                zIndex: 99999,
+              }}>
+                <View style={{
+                  width: 28,
+                  height: 28,
+                  borderRadius: 14,
+                  backgroundColor: 'rgba(16, 185, 129, 0.15)',
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                  marginRight: 12,
+                }}>
+                  <Feather name="check" size={16} color="#10B981" />
+                </View>
+                <Text style={{
+                  fontSize: 13,
+                  fontWeight: '600',
+                  color: '#F8FAFC',
+                  flex: 1,
+                }}>
+                  {saveSuccessMsg}
+                </Text>
+              </View>
+            )
+      )}
+
     </View>
   );
 }

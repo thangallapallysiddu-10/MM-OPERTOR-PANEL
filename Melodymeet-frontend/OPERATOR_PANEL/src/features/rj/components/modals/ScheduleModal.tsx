@@ -10,10 +10,9 @@ import {
   Alert,
   Switch,
   Dimensions,
+  useWindowDimensions,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
-
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 interface ScheduledEvent {
   id: string;
@@ -49,6 +48,13 @@ const CustomCalendar = ({
   const [viewYear, setViewYear] = useState(selectedDate.getFullYear());
   const [viewMonth, setViewMonth] = useState(selectedDate.getMonth());
 
+  useEffect(() => {
+    setViewYear(selectedDate.getFullYear());
+    setViewMonth(selectedDate.getMonth());
+  }, [selectedDate]);
+
+  const { width: screenWidth } = useWindowDimensions();
+
   const textPrimary = isDarkMode ? '#F0F6FC' : '#1E293B';
   const textMuted   = isDarkMode ? '#8B949E' : '#94A3B8';
   const accent      = '#4F6AF0';
@@ -61,8 +67,28 @@ const CustomCalendar = ({
   const getDays      = (y: number, m: number) => new Date(y, m + 1, 0).getDate();
   const getFirstDay  = (y: number, m: number) => new Date(y, m, 1).getDay();
 
-  const prevMonth = () => viewMonth === 0 ? (setViewMonth(11), setViewYear(y => y - 1)) : setViewMonth(m => m - 1);
-  const nextMonth = () => viewMonth === 11 ? (setViewMonth(0),  setViewYear(y => y + 1)) : setViewMonth(m => m + 1);
+  const isAtMinMonth = 
+    viewYear < today.getFullYear() || 
+    (viewYear === today.getFullYear() && viewMonth <= today.getMonth());
+
+  const prevMonth = () => {
+    if (isAtMinMonth) return;
+    if (viewMonth === 0) {
+      setViewMonth(11);
+      setViewYear(y => y - 1);
+    } else {
+      setViewMonth(m => m - 1);
+    }
+  };
+
+  const nextMonth = () => {
+    if (viewMonth === 11) {
+      setViewMonth(0);
+      setViewYear(y => y + 1);
+    } else {
+      setViewMonth(m => m + 1);
+    }
+  };
 
   const cells: (number | null)[] = [
     ...Array(getFirstDay(viewYear, viewMonth)).fill(null),
@@ -78,17 +104,13 @@ const CustomCalendar = ({
     return d < today;
   };
 
-  const isBeforeNow =
-    viewYear < today.getFullYear() ||
-    (viewYear === today.getFullYear() && viewMonth < today.getMonth());
-
-  const cellSize = Math.min(36, (SCREEN_WIDTH - 80) / 7);
+  const cellSize = Math.min(36, (screenWidth - 80) / 7);
 
   return (
     <View>
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-        <TouchableOpacity onPress={prevMonth} disabled={isBeforeNow}
-          style={{ padding: 6, opacity: isBeforeNow ? 0.25 : 1 }}>
+        <TouchableOpacity onPress={prevMonth} disabled={isAtMinMonth}
+          style={{ padding: 6, opacity: isAtMinMonth ? 0.25 : 1 }}>
           <Feather name="chevron-left" size={18} color={textPrimary} />
         </TouchableOpacity>
         <Text style={{ fontSize: 13, fontWeight: '700', color: textPrimary }}>
@@ -123,6 +145,12 @@ const CustomCalendar = ({
                   if (past) return;
                   const nd = new Date(selectedDate);
                   nd.setFullYear(viewYear, viewMonth, day);
+                  
+                  // Safe adjustment if today is selected and default hour/minute is in the past
+                  if (nd.getTime() <= Date.now()) {
+                    const now = new Date();
+                    nd.setHours(now.getHours() + 1, 0, 0, 0);
+                  }
                   onSelectDate(nd);
                 }}
                 disabled={past}
@@ -164,6 +192,11 @@ const SimpleTimePicker = ({
   const [tempHour, setTempHour] = useState(selectedDate.getHours());
   const [tempMinute, setTempMinute] = useState(selectedDate.getMinutes());
 
+  useEffect(() => {
+    setTempHour(selectedDate.getHours());
+    setTempMinute(selectedDate.getMinutes());
+  }, [selectedDate]);
+
   const accent = '#4F6AF0';
   const textPrimary = isDarkMode ? '#F0F6FC' : '#1E293B';
   const textMuted = isDarkMode ? '#8B949E' : '#94A3B8';
@@ -172,17 +205,13 @@ const SimpleTimePicker = ({
   const ampm = tempHour >= 12 ? 'PM' : 'AM';
 
   const changeHour = (delta: number) => {
-    let newHour = tempHour + delta;
-    if (newHour < 0) newHour = 23;
-    if (newHour > 23) newHour = 0;
+    const newHour = (tempHour + delta + 24) % 24;
     setTempHour(newHour);
     onSelectTime(newHour, tempMinute);
   };
 
   const changeMinute = (delta: number) => {
-    let newMinute = tempMinute + delta;
-    if (newMinute < 0) newMinute = 59;
-    if (newMinute > 59) newMinute = 0;
+    const newMinute = (tempMinute + delta + 60) % 60;
     setTempMinute(newMinute);
     onSelectTime(tempHour, newMinute);
   };
@@ -226,11 +255,11 @@ const SimpleTimePicker = ({
       <View>
         <Text style={{ fontSize: 11, color: textMuted, textAlign: 'center', marginBottom: 8 }}>Minute</Text>
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 20 }}>
-          <TouchableOpacity onPress={() => changeMinute(-5)} style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: `${accent}15`, alignItems: 'center', justifyContent: 'center' }}>
+          <TouchableOpacity onPress={() => changeMinute(-1)} style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: `${accent}15`, alignItems: 'center', justifyContent: 'center' }}>
             <Feather name="chevron-left" size={22} color={accent} />
           </TouchableOpacity>
           <Text style={{ fontSize: 32, fontWeight: '700', color: textPrimary, minWidth: 60, textAlign: 'center' }}>{tempMinute.toString().padStart(2, '0')}</Text>
-          <TouchableOpacity onPress={() => changeMinute(5)} style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: `${accent}15`, alignItems: 'center', justifyContent: 'center' }}>
+          <TouchableOpacity onPress={() => changeMinute(1)} style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: `${accent}15`, alignItems: 'center', justifyContent: 'center' }}>
             <Feather name="chevron-right" size={22} color={accent} />
           </TouchableOpacity>
         </View>
@@ -257,6 +286,7 @@ export const ScheduleModal: React.FC<ScheduleModalProps> = ({
   onCancelEvent,
   rjName,
 }) => {
+  const { width: screenWidth } = useWindowDimensions();
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [eventTitle, setEventTitle] = useState('');
   const [eventDescription, setEventDescription] = useState('');
@@ -278,6 +308,14 @@ export const ScheduleModal: React.FC<ScheduleModalProps> = ({
   useEffect(() => {
     setLocalEvents(scheduledEvents);
   }, [scheduledEvents]);
+
+  // Reset form when modal opens
+  useEffect(() => {
+    if (visible) {
+      resetForm();
+      setShowCreateForm(false);
+    }
+  }, [visible]);
 
   const bg = isDarkMode ? '#0D1117' : '#FFFFFF';
   const surface = isDarkMode ? '#161B22' : '#F8FAFC';
@@ -355,8 +393,8 @@ export const ScheduleModal: React.FC<ScheduleModalProps> = ({
   const formatTime = (date: Date) =>
     new Date(date).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
 
-  const hPad = Math.min(16, SCREEN_WIDTH * 0.04);
-  const formWidth = Math.min(SCREEN_WIDTH - hPad * 2, 480);
+  const hPad = Math.min(16, screenWidth * 0.04);
+  const formWidth = Math.min(screenWidth - hPad * 2, 480);
 
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>

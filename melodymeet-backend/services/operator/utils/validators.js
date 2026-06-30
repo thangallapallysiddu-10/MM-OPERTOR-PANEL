@@ -192,7 +192,7 @@ const schemas = {
   podcastNotification: Joi.object({
     title: Joi.string().trim().min(1).max(180).required(),
     message: Joi.string().trim().max(1000).required(),
-    type: Joi.string().valid('report', 'ban', 'follow', 'system', 'song').default('system'),
+    type: Joi.string().valid('report', 'ban', 'follow', 'system', 'song', 'live').default('system'),
     category: Joi.string().valid('dashboard', 'profile', 'rj').default('dashboard'),
   }),
 
@@ -224,6 +224,11 @@ const schemas = {
     roomId: Joi.string().trim().alphanum().min(4).max(120).required(),
     peakViewers: Joi.number().integer().min(0).default(0),
     lastViewerCount: Joi.number().integer().min(0).default(0),
+  }),
+
+  podcastLiveViewers: Joi.object({
+    roomId: Joi.string().trim().alphanum().min(4).max(120).required(),
+    viewerCount: Joi.number().integer().min(0).required(),
   }),
 
   podcastGuestJoin: Joi.object({
@@ -281,6 +286,12 @@ const schemas = {
     slotId: Joi.string().valid('mic2', 'mic3', 'mic4', 'mic5').required(),
     volume: Joi.number().integer().min(0).max(200).required(),
   }),
+
+  // body-only schema: roomId and slotId come from URL params
+  podcastGuestSlotVolumeBody: Joi.object({
+    volume: Joi.number().integer().min(0).max(200),
+    delta: Joi.number().integer().min(-200).max(200),
+  }).xor('volume', 'delta'),
 
   user: Joi.object({
     name: Joi.string().trim().min(1).max(120).required(),

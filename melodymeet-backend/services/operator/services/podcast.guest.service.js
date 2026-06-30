@@ -232,6 +232,92 @@ const getGuestSlotVolume = async (roomId, slotId) => {
   return guest ? guest.volume : 100;
 };
 
+// ---------------------------------------------------------------------------
+// Legacy approval-flow guests (no slotId — operator approve/deny)
+// Used by GET/POST /live/guests/* and socket guest_request events.
+// ---------------------------------------------------------------------------
+
+const serializeLegacyGuest = (guest) => {
+  const row = guest.get ? guest.get({ plain: true }) : guest;
+  return {
+    id: row.id,
+    roomId: row.roomId,
+    name: row.name,
+    device: row.device || 'Unknown Device',
+    status: row.status,
+    joinedAt: row.joinedAt,
+    respondedAt: row.respondedAt || null,
+  };
+};
+
+const getLegacyGuests = async (roomId, query = {}) => {
+  if (!roomId) throw badRequest('roomId is required');
+
+  const where = {
+    roomId,
+    slotId: null,
+  };
+  if (query.status) where.status = query.status;
+
+  const rows = await PodcastGuest.findAll({
+    where,
+    order: [['joinedAt', 'DESC']],
+  });
+  return rows.map(serializeLegacyGuest);
+};
+
+const joinLegacyGuest = async (data) => {
+  const payload = validate(schemas.podcastGuestJoin, data);
+
+  const session = await PodcastLiveSession.findOne({
+    where: { roomId: payload.roomId, status: 'live' },
+  });
+  if (!session) throw badRequest('No active live session found for this room');
+
+  const guest = await PodcastGuest.create({
+    roomId: payload.roomId,
+    name: payload.name,
+    device: payload.device || 'Unknown Device',
+    status: 'pending',
+    slotId: null,
+  });
+
+  return serializeLegacyGuest(guest);
+};
+
+const respondToLegacyGuest = async (id, action) => {
+  const payload = validate(schemas.podcastGuestRespond, { action });
+  const guestId = Number(id);
+  if (!Number.isInteger(guestId) || guestId <= 0) throw badRequest('Invalid guest id');
+
+  const guest = await PodcastGuest.findOne({
+    where: { id: guestId, slotId: null },
+  });
+  if (!guest) throw notFound('Guest request not found');
+  if (guest.status !== 'pending') throw badRequest('Guest request has already been responded to');
+
+  await guest.update({
+    status: payload.action === 'approve' ? 'approved' : 'denied',
+    respondedAt: new Date(),
+  });
+
+  return serializeLegacyGuest(guest);
+};
+
+const removeLegacyGuest = async (id) => {
+  const guestId = Number(id);
+  if (!Number.isInteger(guestId) || guestId <= 0) throw badRequest('Invalid guest id');
+
+  const guest = await PodcastGuest.findOne({
+    where: { id: guestId, slotId: null },
+  });
+  if (!guest) throw notFound('Guest not found');
+
+  const serialized = serializeLegacyGuest(guest);
+  await guest.destroy();
+  return serialized;
+};
+
 module.exports = {
   generateGuestLinks,
   getGuestSlots,
@@ -242,4 +328,10 @@ module.exports = {
   muteGuestSlot,
   setGuestSlotVolume,
   getGuestSlotVolume,
+  // Legacy approval-flow guests
+  getLegacyGuests,
+  joinLegacyGuest,
+  respondToLegacyGuest,
+  removeLegacyGuest,
+  serializeLegacyGuest,
 };

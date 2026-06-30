@@ -26,7 +26,12 @@ interface AuthContextType {
   verifyTwoFactor: (token: string) => Promise<boolean>;
 }
 
-const AuthContext = createContext<AuthContextType | undefined>(undefined);
+const symbolObj = Symbol.for('AuthContext');
+let AuthContext = (globalThis as any)[symbolObj];
+if (!AuthContext) {
+  AuthContext = createContext<AuthContextType | undefined>(undefined);
+  (globalThis as any)[symbolObj] = AuthContext;
+}
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);

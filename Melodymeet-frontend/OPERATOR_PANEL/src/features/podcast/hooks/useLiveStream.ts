@@ -49,19 +49,61 @@ export const useLiveStream = () => {
   const roomLink = podcast.roomLink || '';
 
   useEffect(() => {
-    if (!roomLink) {
-      const generatedRoomId = Math.random().toString(36).substring(2, 10).toUpperCase();
-      const newRoomLink = buildGuestRoomLink(generatedRoomId);
-      updatePodcastState({ roomLink: newRoomLink });
+    const bootstrap = async () => {
+      try {
+        const sessions = await PodcastApi.getLiveSessions();
+        const active = sessions.find((s: any) => s.status === 'live');
+        if (active) {
+          const base = Platform.OS === 'web' && typeof window !== 'undefined' ? window.location.origin : '';
+          
+          // Restore live state
+          const startTime = active.startedAt ? new Date(active.startedAt).getTime() : 0;
+          const elapsedSecs = startTime > 0 ? Math.max(0, Math.floor((Date.now() - startTime) / 1000)) : 0;
 
-      const base = Platform.OS === 'web' && typeof window !== 'undefined' ? window.location.origin : '';
-      const store = useAppStore.getState();
-      const seededSlots = store.podcast.guestSlots.map((slot) => ({
-        ...slot,
-        url: `${base}/podcast/guest/${slot.slotId}/${generatedRoomId}`,
-      }));
-      store.setGuestSlots(seededSlots);
-    }
+          updatePodcastState({
+            isLive: true,
+            liveTitle: active.title,
+            liveDescription: active.description,
+            roomLink: active.roomLink,
+            liveSeconds: elapsedSecs,
+          });
+
+          // Fetch occupied guest slots
+          const slots = await PodcastApi.getGuestSlots(active.roomId);
+          const store = useAppStore.getState();
+          const seededSlots = store.podcast.guestSlots.map((slot) => {
+            const occupied = slots.find((s: any) => s.slotId === slot.slotId);
+            return {
+              ...slot,
+              url: `${base}/podcast/guest/${slot.slotId}/${active.roomId}`,
+              status: occupied && occupied.status === 'connected' ? 'connected' : 'offline',
+              guestName: occupied && occupied.status === 'connected' ? occupied.guestName : '',
+            };
+          });
+          store.setGuestSlots(seededSlots);
+          return;
+        }
+      } catch (err) {
+        console.warn('Failed to retrieve live sessions on mount:', err);
+      }
+
+      // No active session found, generate a fresh roomId
+      if (!roomLink) {
+        const generatedRoomId = Math.random().toString(36).substring(2, 10).toUpperCase();
+        const newRoomLink = buildGuestRoomLink(generatedRoomId);
+        updatePodcastState({ roomLink: newRoomLink });
+
+        const base = Platform.OS === 'web' && typeof window !== 'undefined' ? window.location.origin : '';
+        const store = useAppStore.getState();
+        const seededSlots = store.podcast.guestSlots.map((slot) => ({
+          ...slot,
+          url: `${base}/podcast/guest/${slot.slotId}/${generatedRoomId}`,
+        }));
+        store.setGuestSlots(seededSlots);
+      }
+    };
+
+    void bootstrap();
   }, []);
 
   useEffect(() => {
@@ -71,6 +113,19 @@ export const useLiveStream = () => {
       audio.off('broadcast:stats', handleBroadcastStats);
     };
   }, []);
+
+  useEffect(() => {
+    let interval: ReturnType<typeof setInterval> | null = null;
+    if (isLive) {
+      interval = setInterval(() => {
+        const currentSeconds = useAppStore.getState().podcast.liveSeconds || 0;
+        updatePodcastState({ liveSeconds: currentSeconds + 1 });
+      }, 1000);
+    }
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [isLive]);
 
   const testMicrophone = async () => {
     setMicTestComplete(true);
@@ -94,8 +149,11 @@ export const useLiveStream = () => {
     });
   };
 
-  const startLiveStream = async () => {
-    if (!liveTitle.trim()) {
+  const startLiveStream = async (title?: string, description?: string) => {
+    const activeTitle = title !== undefined ? title : liveTitle;
+    const activeDescription = description !== undefined ? description : liveDescription;
+
+    if (!activeTitle.trim()) {
       showAlert('Error', 'Please enter a title');
       return;
     }
@@ -112,8 +170,8 @@ export const useLiveStream = () => {
       });
 
       await PodcastApi.startLiveSession({
-        title: liveTitle,
-        description: liveDescription || '',
+        title: activeTitle,
+        description: activeDescription || '',
         roomId,
         roomLink: activeRoomLink,
         host: 'Operator',
@@ -130,14 +188,15 @@ export const useLiveStream = () => {
         store.setGuestSlots(updatedSlots);
       } catch {}
 
+      setLiveTitle(activeTitle);
+      setLiveDescription(activeDescription);
       setIsLive(true);
       setLiveSeconds(0);
       setLiveViewers(0);
       setShowLiveSetup(false);
-      showAlert('Live!', `🎙️ You are now live with "${liveTitle}"`);
       addDashboardNotification({
         title: 'Live Stream Started',
-        message: `You started a live stream: "${liveTitle}"`,
+        message: `You started a live stream: "${activeTitle}"`,
         time: 'Just now',
         read: false,
       });
@@ -146,7 +205,21 @@ export const useLiveStream = () => {
     }
   };
 
-  const stopLiveStream = () => {
+  const formatDurationString = (totalSeconds: number) => {
+    const h = Math.floor(totalSeconds / 3600);
+    const m = Math.floor((totalSeconds % 3600) / 60);
+    const s = totalSeconds % 60;
+    
+    let str = '';
+    if (h > 0) str += `${h}h `;
+    if (m > 0 || h > 0) str += `${m}m `;
+    str += `${s}s`;
+    return str;
+  };
+
+  const stopLiveStream = (bypassConfirm = false) => {
+    const finalDurationStr = formatDurationString(liveSeconds);
+
     const confirmStop = async () => {
       try {
         await audio.stopBroadcast();
@@ -169,18 +242,23 @@ export const useLiveStream = () => {
       setLiveViewers(0);
       addDashboardNotification({
         title: 'Live Stream Ended',
-        message: `Your live stream "${liveTitle}" has ended`,
+        message: `Your live stream "${liveTitle}" has ended. Duration: ${finalDurationStr}.`,
         time: 'Just now',
         read: false,
       });
     };
 
+    if (bypassConfirm) {
+      confirmStop();
+      return;
+    }
+
     if (Platform.OS === 'web') {
-      if (window.confirm(`Stop Live Stream?\nDuration: ${Math.floor(liveSeconds / 60)} min, Viewers: ${liveViewers}`)) {
+      if (window.confirm(`Stop Live Stream?\nDuration: ${finalDurationStr}, Viewers: ${liveViewers}`)) {
         confirmStop();
       }
     } else {
-      Alert.alert('Stop Live Stream', `Stop? Duration: ${Math.floor(liveSeconds / 60)} min, Viewers: ${liveViewers}`, [
+      Alert.alert('Stop Live Stream', `Stop? Duration: ${finalDurationStr}, Viewers: ${liveViewers}`, [
         { text: 'Cancel', style: 'cancel' },
         { text: 'Stop', style: 'destructive', onPress: confirmStop },
       ]);

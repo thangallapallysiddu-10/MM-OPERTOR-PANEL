@@ -361,6 +361,29 @@ class RjSocketService {
     return () => this.socket?.off('rj_announcement');
   }
 
+  acceptSpeakRequest(studioId: string, slotId: string, requestId: string, userName: string) {
+    this.socket?.emit('accept_speak_request', { studioId, slotId, requestId, userName });
+  }
+
+  rejectSpeakRequest(studioId: string, slotId: string, requestId: string) {
+    this.socket?.emit('reject_speak_request', { studioId, slotId, requestId });
+  }
+
+  onSpeakRequest(cb: (payload: { id: string; userName: string; slotId: string; timestamp: string }) => void) {
+    this.socket?.on('rj_speak_request', cb);
+    return () => this.socket?.off('rj_speak_request');
+  }
+
+  onSpeakRequestAccepted(cb: (payload: { requestId: string; slotId: string; userName: string }) => void) {
+    this.socket?.on('rj_speak_request_accepted', cb);
+    return () => this.socket?.off('rj_speak_request_accepted');
+  }
+
+  onSpeakRequestRejected(cb: (payload: { requestId: string }) => void) {
+    this.socket?.on('rj_speak_request_rejected', cb);
+    return () => this.socket?.off('rj_speak_request_rejected');
+  }
+
   isConnected(): boolean {
     return this.socket?.connected ?? false;
   }
@@ -620,6 +643,25 @@ class PodcastSocketService {
   onWebRtcIceCandidate(cb: (payload: { roomId: string; slotId: string; candidate: RTCIceCandidateInit }) => void) {
     this.socket?.on('webrtc_ice_candidate', cb);
     return () => this.socket?.off('webrtc_ice_candidate');
+  }
+
+  speakRequest(roomId: string, slotId: string, userName: string, requestId: string) {
+    this.socket?.emit('speak_request', { roomId, slotId, userName, requestId });
+  }
+
+  onSpeakRequest(cb: (payload: { id: string; userName: string; slotId: string; timestamp: string }) => void) {
+    this.socket?.on('speak_request', cb);
+    return () => this.socket?.off('speak_request');
+  }
+
+  onSpeakRequestAccepted(cb: (payload: { roomId: string; slotId: string; requestId: string }) => void) {
+    this.socket?.on('speak_request_accepted', cb);
+    return () => this.socket?.off('speak_request_accepted');
+  }
+
+  onSpeakRequestRejected(cb: (payload: { roomId: string; slotId: string; requestId: string }) => void) {
+    this.socket?.on('speak_request_rejected', cb);
+    return () => this.socket?.off('speak_request_rejected');
   }
 
   isConnected(): boolean {

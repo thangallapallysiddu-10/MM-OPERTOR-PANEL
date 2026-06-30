@@ -92,12 +92,33 @@ export function useRjSync(
               const rawA = dual.playerATrack as Record<string, unknown> | null | undefined;
               const rawB = dual.playerBTrack as Record<string, unknown> | null | undefined;
 
-              patch.playerATrack = (deckALoaded && rawA && typeof rawA === 'object' && rawA.title)
+              patch.playerATrack = (rawA && typeof rawA === 'object' && rawA.title)
                 ? rawA
                 : null;
-              patch.playerBTrack = (deckBLoaded && rawB && typeof rawB === 'object' && rawB.title)
+              patch.playerBTrack = (rawB && typeof rawB === 'object' && rawB.title)
                 ? rawB
                 : null;
+
+              const playStateA = Boolean(dual.isPlayingA);
+              const playStateB = Boolean(dual.isPlayingB);
+              patch.isPlayingA = playStateA;
+              patch.isPlayingB = playStateB;
+
+              if (rawA && rawA.fileUrl) {
+                if (playStateA) {
+                  audio.play('A', RjApi.getFileUrl(String(rawA.fileUrl))).catch(() => {});
+                } else {
+                  audio.pause('A').catch(() => {});
+                }
+              }
+
+              if (rawB && rawB.fileUrl) {
+                if (playStateB) {
+                  audio.play('B', RjApi.getFileUrl(String(rawB.fileUrl))).catch(() => {});
+                } else {
+                  audio.pause('B').catch(() => {});
+                }
+              }
 
               patch.activePlayer = dual.activePlayer;
               patch.crossfadeValue = dual.crossfadeValue;
@@ -239,6 +260,61 @@ export function useRjSync(
                 system: true,
               },
             });
+          }) || (() => {})
+        );
+
+        cleanups.push(
+          rjSocket.onSpeakRequest((payload) => {
+            const { rjStudio, updateRjStudioState, addRjNotification } = useAppStore.getState();
+            const exist = rjStudio.speakRequests || [];
+            if (exist.some(r => r.id === payload.id)) return;
+
+            updateRjStudioState({
+              speakRequests: [...exist, { id: payload.id, userName: payload.userName, slotId: payload.slotId, timestamp: payload.timestamp, status: 'pending' }]
+            });
+            
+            addRjNotification({
+              title: "New Speak Request",
+              message: `🎙️ ${payload.userName} wants to speak live!`,
+              type: "request",
+              read: false,
+            });
+          }) || (() => {})
+        );
+
+        cleanups.push(
+          rjSocket.onSpeakRequestAccepted((payload) => {
+            const { rjStudio, updateRjStudioState } = useAppStore.getState();
+            const exist = rjStudio.speakRequests || [];
+            const updated = exist.map(r => r.id === payload.requestId ? { ...r, status: 'accepted' as const } : r);
+            
+            // Add new mic if not exists
+            const micId = `mic_${payload.requestId}`;
+            const mics = rjStudio.rjMics || [];
+            if (!mics.some(m => m.id === micId)) {
+              const newMic = {
+                id: micId,
+                name: payload.userName.toUpperCase(),
+                avatar: payload.userName.substring(0, 2).toUpperCase(),
+                isActive: true,
+                isMuted: false,
+                volume: 0,
+                isGuest: true,
+                guestId: `guest_${payload.requestId}`,
+              };
+              updateRjStudioState({ speakRequests: updated, rjMics: [...mics, newMic] });
+            } else {
+              updateRjStudioState({ speakRequests: updated });
+            }
+          }) || (() => {})
+        );
+
+        cleanups.push(
+          rjSocket.onSpeakRequestRejected((payload) => {
+            const { rjStudio, updateRjStudioState } = useAppStore.getState();
+            const exist = rjStudio.speakRequests || [];
+            const updated = exist.map(r => r.id === payload.requestId ? { ...r, status: 'rejected' as const } : r);
+            updateRjStudioState({ speakRequests: updated });
           }) || (() => {})
         );
 

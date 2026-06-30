@@ -516,6 +516,46 @@ export const PodcastApi = {
       throw normalizeError(err);
     }
   },
+
+  /** GET /api/podcasts/notifications */
+  getNotifications: async (): Promise<any[]> => {
+    try {
+      const { data } = await apiClient.get(`/podcasts/notifications`);
+      return data.data ?? [];
+    } catch (err) {
+      throw normalizeError(err);
+    }
+  },
+
+  /** PUT /api/podcasts/notifications/:id/read */
+  markNotificationRead: async (id: string): Promise<any> => {
+    try {
+      const { data } = await apiClient.put(`/podcasts/notifications/${id}/read`);
+      return data.data;
+    } catch (err) {
+      throw normalizeError(err);
+    }
+  },
+
+  /** PUT /api/podcasts/notifications/mark-all-read */
+  markAllNotificationsRead: async (): Promise<any> => {
+    try {
+      const { data } = await apiClient.put(`/podcasts/notifications/mark-all-read`);
+      return data.data;
+    } catch (err) {
+      throw normalizeError(err);
+    }
+  },
+
+  /** DELETE /api/podcasts/notifications */
+  clearNotifications: async (): Promise<any> => {
+    try {
+      const { data } = await apiClient.delete(`/podcasts/notifications`);
+      return data.data;
+    } catch (err) {
+      throw normalizeError(err);
+    }
+  },
 };
 
 // ─── Analytics API ────────────────────────────────────────────────────────────

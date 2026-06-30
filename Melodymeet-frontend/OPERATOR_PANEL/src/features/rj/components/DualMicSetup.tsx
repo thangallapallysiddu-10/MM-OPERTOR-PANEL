@@ -409,7 +409,6 @@ function ChannelStrip({ ch, onChange, availableDevices }: { ch: Channel; onChang
         <div style={{ flex: 1, position: "relative" }}>
           <select
             value={ch.input}
-            disabled={ch.input === "Unassigned"}
             onChange={e => upd({ input: e.target.value })}
             style={{
               width: "100%",
@@ -420,7 +419,7 @@ function ChannelStrip({ ch, onChange, availableDevices }: { ch: Channel; onChang
               fontSize: 10,
               color: ch.input === "Unassigned" ? C.offlineGray : C.textLight,
               fontFamily: "monospace",
-              cursor: ch.input === "Unassigned" ? "not-allowed" : "pointer",
+              cursor: "pointer",
               appearance: "none",
               WebkitAppearance: "none",
               outline: "none",

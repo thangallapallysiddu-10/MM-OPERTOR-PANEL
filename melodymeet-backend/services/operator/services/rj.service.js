@@ -1118,6 +1118,48 @@ const resetStudio = async (studioId) => {
   return getOrCreateStudio(streamId);
 };
 
+/**
+ * patchMixer — updates mixer-related fields on the studio JSONB column.
+ * Called by the `mixer_update` socket handler.
+ * Accepted fields: mixerChannels, mixerCrossfader, masterGain, selectedFX, activeChannel
+ */
+const patchMixer = async (studioId, body) => {
+  const studio = await getOrCreateStudio(studioId);
+  const allowed = ['mixerChannels', 'mixerCrossfader', 'masterGain', 'selectedFX', 'activeChannel'];
+  allowed.forEach((key) => {
+    if (body[key] !== undefined) {
+      studio[key] = body[key];
+    }
+  });
+  // Persist mixer state inside the dualPlayer JSONB blob so it survives restarts
+  const dual = { ...(studio.dualPlayer || DEFAULT_DUAL_PLAYER) };
+  if (body.mixerCrossfader !== undefined) dual.crossfadeValue = Number(body.mixerCrossfader);
+  if (body.masterGain !== undefined) dual.masterGain = Number(body.masterGain);
+  if (body.selectedFX !== undefined) dual.selectedFX = body.selectedFX;
+  if (body.activeChannel !== undefined) dual.activeChannel = Number(body.activeChannel);
+  studio.dualPlayer = dual;
+  if (body.activeChannel !== undefined) studio.activeChannel = Number(body.activeChannel);
+  await studio.save();
+  return studio;
+};
+
+/**
+ * getMixerStateForClient — extracts mixer-related fields from a studio record
+ * and returns a flat object that the frontend expects.
+ */
+const getMixerStateForClient = (studio) => {
+  const s = studio.get ? studio.get({ plain: true }) : { ...studio };
+  const dual = s.dualPlayer || {};
+  return {
+    mixerChannels: s.mixerChannels || dual.mixerChannels || [],
+    mixerCrossfader: dual.crossfadeValue ?? s.mixerCrossfader ?? 0,
+    masterGain: dual.masterGain ?? s.masterGain ?? 75,
+    selectedFX: dual.selectedFX ?? s.selectedFX ?? '',
+    activeChannel: dual.activeChannel ?? s.activeChannel ?? 1,
+    crossfadeValue: dual.crossfadeValue ?? 0,
+  };
+};
+
 module.exports = {
   getOrCreateStudio,
   getStudioBundle,
@@ -1135,6 +1177,8 @@ module.exports = {
   advancePlaylist,
   applyDualPlayerAction,
 
+  patchMixer,
+  getMixerStateForClient,
   patchMic,
   addMic,
   removeMic,

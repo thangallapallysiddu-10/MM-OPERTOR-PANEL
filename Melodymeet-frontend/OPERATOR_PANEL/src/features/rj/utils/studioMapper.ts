@@ -94,10 +94,10 @@ export async function hydrateRjStoreFromBundle(bundle: RjStudioBundle) {
     return incoming;
   };
 
-  const playerATrack = (deckAHasLoaded && rawA && typeof rawA === 'object' && rawA.title)
+  const playerATrack = (rawA && typeof rawA === 'object' && rawA.title)
     ? mergeAudioUrl(rawA, existingA) as never
     : null;
-  const playerBTrack = (deckBHasLoaded && rawB && typeof rawB === 'object' && rawB.title)
+  const playerBTrack = (rawB && typeof rawB === 'object' && rawB.title)
     ? mergeAudioUrl(rawB, existingB) as never
     : null;
 
@@ -106,14 +106,10 @@ export async function hydrateRjStoreFromBundle(bundle: RjStudioBundle) {
     playerBTrack,
     isPlayingA: Boolean(dual.isPlayingA),
     isPlayingB: Boolean(dual.isPlayingB),
-    activePlayer: (dual.activePlayer as 'A' | 'B') || 'A',
+    activePlayer: (dual.activePlayer as 'A' | 'B') || null,
     crossfadeValue: Number(dual.crossfadeValue) || 0,
     isCrossfading: Boolean(dual.isCrossfading),
-    // Only restore currentTrack if a deck is actually loaded — prevents phantom
-    // "Now Playing" songs appearing after restart when no audio is in any deck.
-    currentTrack: (deckAHasLoaded || deckBHasLoaded)
-      ? ((studio.currentTrack as never) ?? null)
-      : null,
+    currentTrack: ((studio.currentTrack as never) ?? null),
     playlist,
     isPlaylistActive: Boolean(studio.isPlaylistActive),
     isPlaylistPaused: Boolean(studio.isPlaylistPaused),
@@ -192,22 +188,18 @@ export async function applyStudioRecordToStore(studio: Record<string, unknown>) 
   };
 
   useAppStore.getState().updateRjStudioState({
-    playerATrack: (deckAHasLoaded2 && rawA2 && typeof rawA2 === 'object' && rawA2.title)
+    playerATrack: (rawA2 && typeof rawA2 === 'object' && rawA2.title)
       ? mergeAudioUrl2(rawA2, existingA2) as never
       : null,
-    playerBTrack: (deckBHasLoaded2 && rawB2 && typeof rawB2 === 'object' && rawB2.title)
+    playerBTrack: (rawB2 && typeof rawB2 === 'object' && rawB2.title)
       ? mergeAudioUrl2(rawB2, existingB2) as never
       : null,
     isPlayingA: Boolean(dual.isPlayingA),
     isPlayingB: Boolean(dual.isPlayingB),
-    activePlayer: (dual.activePlayer as 'A' | 'B') || 'A',
+    activePlayer: (dual.activePlayer as 'A' | 'B') || null,
     crossfadeValue: Number(dual.crossfadeValue) ?? 0,
     isCrossfading: Boolean(dual.isCrossfading),
-    // Only restore currentTrack if a deck is actually loaded — prevents phantom
-    // "Now Playing" songs appearing after restart when no audio is in any deck.
-    currentTrack: (deckAHasLoaded2 || deckBHasLoaded2)
-      ? ((studio.currentTrack as never) ?? null)
-      : null,
+    currentTrack: ((studio.currentTrack as never) ?? null),
     ...applyPlaylistStudioFields(studio),
     isPlaylistActive: Boolean(studio.isPlaylistActive),
     isPlaylistPaused: Boolean(studio.isPlaylistPaused),

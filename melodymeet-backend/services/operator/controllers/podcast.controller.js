@@ -400,6 +400,55 @@ const setGuestVolume = async (req, res) => {
   }
 };
 
+// ---------------------------------------------------------------------------
+// Legacy approval-flow guest controllers
+// ---------------------------------------------------------------------------
+
+const getLegacyGuests = async (req, res) => {
+  try {
+    const guests = await podcastService.getLegacyGuests(req.params.roomId, req.query);
+    res.status(200).json({ success: true, data: guests });
+  } catch (err) {
+    sendError(res, err);
+  }
+};
+
+const joinLegacyGuest = async (req, res) => {
+  try {
+    const guest = await podcastService.joinLegacyGuest(req.body);
+    await podcastSocket.emitGuestRequest(req.body.roomId, guest);
+    res.status(201).json({ success: true, data: guest });
+  } catch (err) {
+    sendError(res, err, 400);
+  }
+};
+
+const respondToLegacyGuest = async (req, res) => {
+  try {
+    const guest = await podcastService.respondToLegacyGuest(req.params.id, req.body.action);
+    await podcastSocket.emitGuestUpdate(guest.roomId, guest);
+    if (guest.status === 'approved') {
+      podcastSocket.registerLegacyGuestApproval(guest.roomId, guest.id);
+    } else {
+      podcastSocket.clearLegacyGuestSocket(guest.roomId, guest.id);
+    }
+    res.status(200).json({ success: true, data: guest });
+  } catch (err) {
+    sendError(res, err, 400);
+  }
+};
+
+const removeLegacyGuest = async (req, res) => {
+  try {
+    const guest = await podcastService.removeLegacyGuest(req.params.id);
+    podcastSocket.clearLegacyGuestSocket(guest.roomId, guest.id);
+    await podcastSocket.emitGuestUpdate(guest.roomId, { ...guest, status: 'removed' });
+    res.status(200).json({ success: true, message: 'Guest removed', data: guest });
+  } catch (err) {
+    sendError(res, err);
+  }
+};
+
 const getMics = async (req, res) => {
   try {
     const mics = await podcastService.getMics();
@@ -465,6 +514,11 @@ module.exports = {
   // Guest Control Center
   muteGuestSlot,
   setGuestVolume,
+  // Legacy approval-flow guests
+  getLegacyGuests,
+  joinLegacyGuest,
+  respondToLegacyGuest,
+  removeLegacyGuest,
   // Notifications
   getNotifications,
   createNotification,

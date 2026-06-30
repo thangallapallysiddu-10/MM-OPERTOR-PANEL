@@ -448,17 +448,16 @@ export const PlayerAudioFXPanel: React.FC<PlayerAudioFXPanelProps> = ({
         </button>
       </div>
 
-      {/* ══ SINGLE ROW: COMPRESSOR + LIMITER + MASTER VOLUME ══ */}
+      {/* ══ TOP ROW: COMPRESSOR + LIMITER ══ */}
       <div style={{
         display: 'flex', alignItems: 'stretch',
-        gap: 12, padding: '14px', flexWrap: 'nowrap',
-        overflowX: 'auto',
+        gap: 12, padding: '14px 14px 7px 14px', flexWrap: 'wrap',
       }}>
 
         {/* ── COMPRESSOR ── */}
-        <div style={{ ...sectionStyle, flex: '0 0 auto' }}>
+        <div style={{ ...sectionStyle, flex: '1 1 auto' }}>
           <span style={sectionLabel}>COMPRESSOR</span>
-          <div style={{ display: 'flex', gap: 22, alignItems: 'flex-start' }}>
+          <div style={{ display: 'flex', gap: 22, alignItems: 'flex-start', flexWrap: 'wrap' }}>
             <Knob label="Threshold" value={compressor.threshold} min={-40} max={0}   unit="dB"  onChange={v => handleComp('threshold', v)} formatValue={v => `${v.toFixed(0)} dB`} />
             <Knob label="Ratio"     value={compressor.ratio}     min={1}   max={20}  unit=":1"  onChange={v => handleComp('ratio', v)}     formatValue={v => `${v.toFixed(1)}:1`} />
             <Knob label="Attack"    value={compressor.attack}    min={0}   max={100} unit="ms"  onChange={v => handleComp('attack', v)}    formatValue={v => `${v.toFixed(0)} ms`} />
@@ -468,7 +467,7 @@ export const PlayerAudioFXPanel: React.FC<PlayerAudioFXPanelProps> = ({
         </div>
 
         {/* ── LIMITER ── */}
-        <div style={{ ...sectionStyle, flex: '0 0 auto' }}>
+        <div style={{ ...sectionStyle, flex: '1 1 auto' }}>
           <span style={sectionLabel}>LIMITER</span>
           <div style={{ display: 'flex', gap: 22, alignItems: 'flex-start' }}>
             <Knob label="Threshold" value={limiter.threshold} min={-12} max={0}   unit="dB" onChange={v => handleLim('threshold', v)} formatValue={v => `${v.toFixed(1)} dB`} />
@@ -489,8 +488,14 @@ export const PlayerAudioFXPanel: React.FC<PlayerAudioFXPanelProps> = ({
           </div>
         </div>
 
+      </div>
+
+      {/* ══ BOTTOM ROW: MASTER VOLUME ══ */}
+      <div style={{
+        padding: '7px 14px 14px 14px',
+      }}>
         {/* ── MASTER VOLUME ── */}
-        <div style={{ ...sectionStyle, flex: '1 1 520px', minWidth: 520 }}>
+        <div style={{ ...sectionStyle, width: '100%' }}>
           <span style={sectionLabel}>MASTER VOLUME</span>
           <div style={{ display: 'flex', alignItems: 'center', gap: 26 }}>
             <Knob
@@ -500,7 +505,7 @@ export const PlayerAudioFXPanel: React.FC<PlayerAudioFXPanelProps> = ({
               max={6}
               unit="dB"
               onChange={handleMasterVolumeChange}
-              size={92}
+              size={82}
               formatValue={v => `${v.toFixed(1)} dB`}
             />
             <div style={{ display: 'flex', flexDirection: 'column', gap: 5, flex: 1, minWidth: 0 }}>
@@ -510,7 +515,6 @@ export const PlayerAudioFXPanel: React.FC<PlayerAudioFXPanelProps> = ({
             </div>
           </div>
         </div>
-
       </div>
 
       {/* ══ FOOTER — Server status only ══ */}
@@ -524,7 +528,7 @@ export const PlayerAudioFXPanel: React.FC<PlayerAudioFXPanelProps> = ({
       }}>
         <span style={{ color: isLive ? '#22c55e' : '#6b7280', fontSize: 10 }}>●</span>
         <span style={{ fontSize: 11, color: textMut }}>
-          Server: {isLive ? 'Connected' : 'Offline'}
+          Server: {isLive ? 'Online' : 'Offline'}
         </span>
       </div>
 

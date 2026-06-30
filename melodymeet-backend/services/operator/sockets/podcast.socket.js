@@ -16,6 +16,7 @@ const getRoom = (roomId) => {
       audienceNames: new Map(),
       approvedGuests: new Map(),
       guestSockets: new Map(),
+      pendingLegacyGuests: new Map(),
       chatHistory: [],
     });
   }
@@ -91,6 +92,7 @@ const emitSessionEnded = (roomId) => {
   room.audienceNames.clear();
   room.approvedGuests.clear();
   room.guestSockets.clear();
+  room.pendingLegacyGuests.clear();
   room.chatHistory = [];
   podcastNamespace.to(`podcast:${roomId}`).emit('live_ended', { roomId });
   podcastNamespace.to(`podcast:${roomId}:hosts`).emit('live_ended', { roomId });
@@ -157,6 +159,41 @@ const emitGuestRemoved = (roomId, slotId) => {
     .emit('guest_removed', { roomId, slotId, reason: 'Removed by host' });
 };
 
+/**
+ * Legacy approval-flow — notify operator UI of a new guest request.
+ */
+const emitGuestRequest = (roomId, guest) => {
+  if (!podcastNamespace || !roomId || !guest) return;
+  podcastNamespace.to(`podcast:${roomId}:hosts`).emit('guest_request', { roomId, guest });
+};
+
+/**
+ * Legacy approval-flow — notify room of guest status change (approve/deny/remove).
+ */
+const emitGuestUpdate = (roomId, guest) => {
+  if (!podcastNamespace || !roomId || !guest) return;
+  podcastNamespace.to(`podcast:${roomId}:hosts`).emit('guest_update', { roomId, guest });
+  podcastNamespace.to(`podcast:${roomId}`).emit('guest_update', { roomId, guest });
+};
+
+const registerLegacyGuestApproval = (roomId, guestId) => {
+  const room = getRoom(roomId);
+  const socketId = room.pendingLegacyGuests.get(String(guestId));
+  if (!socketId) return;
+
+  room.approvedGuests.set(String(guestId), socketId);
+  room.guestSockets.set(String(guestId), socketId);
+  room.pendingLegacyGuests.delete(String(guestId));
+  emitViewerCount(roomId).catch(() => {});
+};
+
+const clearLegacyGuestSocket = (roomId, guestId) => {
+  const room = getRoom(roomId);
+  room.pendingLegacyGuests.delete(String(guestId));
+  room.approvedGuests.delete(String(guestId));
+  room.guestSockets.delete(String(guestId));
+};
+
 const removeSocketFromRooms = async (socket) => {
   const rooms = socket.data.podcastRooms || [];
   const guestId = socket.data.guestId ? String(socket.data.guestId) : null;
@@ -202,10 +239,21 @@ const podcastSocket = (io) => {
       }
       socket.join(`podcast:${cleanRoomId}:hosts`);
 
+      let guestSlots = [];
+      let legacyGuests = [];
+      try {
+        guestSlots = await podcastService.getGuestSlots(cleanRoomId);
+        legacyGuests = await podcastService.getLegacyGuests(cleanRoomId);
+      } catch (_) {
+        // Snapshot should still succeed if DB is temporarily unavailable.
+      }
+
       socket.emit('room_snapshot', {
         roomId: cleanRoomId,
         viewerCount: getViewerCount(cleanRoomId),
         chatHistory: room.chatHistory,
+        guestSlots,
+        legacyGuests,
       });
       socket.emit('chat_history', { roomId: cleanRoomId, messages: room.chatHistory });
     };
@@ -266,16 +314,33 @@ const podcastSocket = (io) => {
     socket.on('host_chat_message', handleHostChatMessage);
     socket.on('operator_chat_message', handleHostChatMessage);
 
-    const handleGuestChatMessage = ({ roomId, guestId, text } = {}) => {
+    const handleGuestChatMessage = ({ roomId, guestId, name, text } = {}) => {
       const cleanRoomId = String(roomId || '').trim();
-      const cleanGuestId = String(guestId || socket.data.guestId || '').trim();
       const cleanText = normalizeChatText(text);
       const room = getRoom(cleanRoomId);
 
-      if (!cleanRoomId || !cleanGuestId || room.approvedGuests.get(cleanGuestId) !== socket.id) {
-        socket.emit('chat_error', { message: 'Only approved guests can send chat messages' });
+      if (!cleanRoomId) {
+        socket.emit('chat_error', { message: 'roomId is required' });
         return;
       }
+
+      // Primary auth: guestId is in the approvedGuests map (set during guest_joined).
+      const cleanGuestId = String(guestId || socket.data.guestId || '').trim();
+      const approvedByGuestId = cleanGuestId && room.approvedGuests.get(cleanGuestId) === socket.id;
+
+      // Fallback auth: the socket is in the guest_slot room for this roomId,
+      // meaning it went through the guest_joined handshake successfully.
+      // This covers the case where guestId was not passed during join (legacy path).
+      const slotId = socket.data.guestSlotId;
+      const approvedBySlotRoom = slotId
+        ? socket.rooms.has(`guest_slot:${cleanRoomId}:${slotId}`)
+        : false;
+
+      if (!approvedByGuestId && !approvedBySlotRoom) {
+        socket.emit('chat_error', { message: 'Only connected guests can send chat messages' });
+        return;
+      }
+
       if (!cleanText || cleanText.length > CHAT_MESSAGE_LIMIT) {
         socket.emit('chat_error', { message: `Chat message must be 1-${CHAT_MESSAGE_LIMIT} characters` });
         return;
@@ -285,10 +350,13 @@ const podcastSocket = (io) => {
         return;
       }
 
+      // Resolve the best available sender name
+      const senderName = socket.data.guestName || String(name || '').trim().slice(0, 80) || 'Guest';
+
       emitChatMessage(cleanRoomId, createChatMessage({
         roomId: cleanRoomId,
-        senderId: cleanGuestId,
-        senderName: socket.data.guestName || 'Guest',
+        senderId: cleanGuestId || socket.data.guestSlotId || socket.id,
+        senderName,
         senderRole: 'guest',
         text: cleanText,
       }));
@@ -329,6 +397,40 @@ const podcastSocket = (io) => {
 
     socket.on('openconnect_chat_message', handleOpenConnectChatMessage);
     socket.on('openconnect_guest_chat_message', handleGuestChatMessage);
+
+    /**
+     * guest_request — legacy approval-flow mic request from a listener/guest.
+     * Creates a pending PodcastGuest row and notifies the operator UI.
+     *
+     * Payload: { roomId, name, device? }
+     */
+    socket.on('guest_request', async ({ roomId, name, device } = {}) => {
+      const cleanRoomId = String(roomId || '').trim();
+      const cleanName = String(name || '').trim().slice(0, 120);
+      if (!cleanRoomId || !cleanName) {
+        socket.emit('podcast_error', { message: 'roomId and name are required' });
+        return;
+      }
+
+      try {
+        const guest = await podcastService.joinLegacyGuest({
+          roomId: cleanRoomId,
+          name: cleanName,
+          device: device || 'Web Browser',
+        });
+        socket.data.guestId = guest.id;
+        socket.data.guestName = guest.name;
+        if (!socket.data.podcastRooms.includes(cleanRoomId)) {
+          socket.data.podcastRooms.push(cleanRoomId);
+        }
+        socket.join(`podcast:${cleanRoomId}`);
+        getRoom(cleanRoomId).pendingLegacyGuests.set(String(guest.id), socket.id);
+        emitGuestRequest(cleanRoomId, guest);
+        socket.emit('guest_update', { roomId: cleanRoomId, guest });
+      } catch (err) {
+        socket.emit('podcast_error', { message: err.message || 'Could not submit guest request' });
+      }
+    });
 
     // -----------------------------------------------------------------------
     // Guest Link Manager socket events
@@ -519,6 +621,10 @@ podcastSocket.emitSlotUpdated = emitSlotUpdated;
 podcastSocket.emitGuestMuteChanged = emitGuestMuteChanged;
 podcastSocket.emitGuestVolumeChanged = emitGuestVolumeChanged;
 podcastSocket.emitGuestRemoved = emitGuestRemoved;
+podcastSocket.emitGuestRequest = emitGuestRequest;
+podcastSocket.emitGuestUpdate = emitGuestUpdate;
+podcastSocket.registerLegacyGuestApproval = registerLegacyGuestApproval;
+podcastSocket.clearLegacyGuestSocket = clearLegacyGuestSocket;
 podcastSocket.getViewerCount = getViewerCount;
 
 module.exports = podcastSocket;

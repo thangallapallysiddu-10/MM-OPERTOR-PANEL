@@ -42,7 +42,7 @@ export const buildTrackFromLocalFile = (file: UploadedLocalFile): Track => {
     duration: file.duration,
     bpm: 120,
     channel: 1,
-    audioUrl: file.filePath || file.uri,
+    audioUrl: file.uri || file.filePath,
     beatIntensity: 70,
     shortTitle: title.substring(0, 12).toUpperCase(),
     gain: 70,

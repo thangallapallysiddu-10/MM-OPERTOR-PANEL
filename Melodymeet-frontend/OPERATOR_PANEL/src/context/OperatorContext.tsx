@@ -52,7 +52,12 @@ interface OperatorContextType {
 
 // ─── Context ──────────────────────────────────────────────────────────────────
 
-const OperatorContext = createContext<OperatorContextType | undefined>(undefined);
+const symbolObj = Symbol.for('OperatorContext');
+let OperatorContext = (globalThis as any)[symbolObj];
+if (!OperatorContext) {
+  OperatorContext = createContext<OperatorContextType | undefined>(undefined);
+  (globalThis as any)[symbolObj] = OperatorContext;
+}
 
 export const useOperator = (): OperatorContextType => {
   const ctx = useContext(OperatorContext);

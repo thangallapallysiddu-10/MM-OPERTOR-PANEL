@@ -12,6 +12,8 @@ import {
   Platform,
 } from 'react-native';
 import GuestRoom from './GuestRoom';
+import { podcastApi } from '../services/api';
+import { StorageService } from '../services/storageService';
 
 interface GuestJoinPageProps {
   slotId: string;
@@ -24,6 +26,8 @@ export default function GuestJoinPage({ slotId, roomId, onLeave }: GuestJoinPage
   const [isJoining, setIsJoining] = useState(false);
   const [error, setError] = useState('');
   const [hasJoined, setHasJoined] = useState(false);
+  const [guestId, setGuestId] = useState<number | undefined>(undefined);
+  const [guestToken, setGuestToken] = useState<string | undefined>(undefined);
 
   // Auto-identify and auto-join guest if name is present in invite URL query string
   useEffect(() => {
@@ -33,14 +37,31 @@ export default function GuestJoinPage({ slotId, roomId, onLeave }: GuestJoinPage
       if (urlGuestName && urlGuestName.trim() !== '') {
         const finalName = urlGuestName.trim();
         setGuestName(finalName);
-        setIsJoining(true);
-        setError('');
-
-        const timer = setTimeout(() => {
-          setIsJoining(false);
-          setHasJoined(true);
-        }, 1000); // 1-second delay for smooth transitions
-        return () => clearTimeout(timer);
+        
+        const autoJoin = async () => {
+          setIsJoining(true);
+          setError('');
+          try {
+            const tokenKey = `@guest_token:${roomId}:${slotId}`;
+            const savedToken = await StorageService.getCustomItem(tokenKey);
+            const result = await podcastApi.joinGuestSlot({
+              roomId,
+              slotId,
+              guestName: finalName,
+              guestToken: savedToken || undefined,
+            });
+            await StorageService.setCustomItem(tokenKey, result.guestToken);
+            await StorageService.setCustomItem(`@guest_id:${roomId}:${slotId}`, String(result.id));
+            setGuestId(result.id);
+            setGuestToken(result.guestToken);
+            setIsJoining(false);
+            setHasJoined(true);
+          } catch (err: any) {
+            setIsJoining(false);
+            setError(err?.message || 'Failed to auto-join slot.');
+          }
+        };
+        void autoJoin();
       }
     }
   }, []);
@@ -58,7 +79,7 @@ export default function GuestJoinPage({ slotId, roomId, onLeave }: GuestJoinPage
 
   const slotLabel = slotId ? getSlotLabel(slotId) : 'Guest Slot';
 
-  const handleJoin = () => {
+  const handleJoin = async () => {
     if (!guestName.trim()) {
       setError('Please enter your name');
       return;
@@ -67,10 +88,26 @@ export default function GuestJoinPage({ slotId, roomId, onLeave }: GuestJoinPage
     setError('');
     setIsJoining(true);
 
-    setTimeout(() => {
+    try {
+      const tokenKey = `@guest_token:${roomId}:${slotId}`;
+      const savedToken = await StorageService.getCustomItem(tokenKey);
+      const result = await podcastApi.joinGuestSlot({
+        roomId,
+        slotId,
+        guestName: guestName.trim(),
+        guestToken: savedToken || undefined,
+      });
+
+      await StorageService.setCustomItem(tokenKey, result.guestToken);
+      await StorageService.setCustomItem(`@guest_id:${roomId}:${slotId}`, String(result.id));
+      setGuestId(result.id);
+      setGuestToken(result.guestToken);
       setIsJoining(false);
-      setHasJoined(true);  // ✅ Navigate to GuestRoom
-    }, 1500);
+      setHasJoined(true);
+    } catch (err: any) {
+      setIsJoining(false);
+      setError(err?.message || 'Failed to join slot. It might be already occupied.');
+    }
   };
 
   // ─── IF JOINED, SHOW GUEST ROOM ───────────────────────────────────────────
@@ -80,6 +117,8 @@ export default function GuestJoinPage({ slotId, roomId, onLeave }: GuestJoinPage
         slotId={slotId}
         roomId={roomId}
         guestName={guestName}
+        guestId={guestId}
+        guestToken={guestToken}
         onLeave={() => {
           setHasJoined(false);  // ✅ Go back to join page
           onLeave?.();
@@ -122,7 +161,7 @@ export default function GuestJoinPage({ slotId, roomId, onLeave }: GuestJoinPage
           {isJoining ? (
             <ActivityIndicator size="small" color="#000" />
           ) : (
-            <Text style={styles.joinButtonText}>Join</Text>
+            <Text style={styles.joinButtonText}>Request to Join</Text>
           )}
         </TouchableOpacity>
 

@@ -298,7 +298,8 @@ const getAllRecordings = async (query = {}) => {
 
 const createRecording = async (data) => {
   const payload = validate(schemas.podcastRecording, data);
-  return await PodcastRecording.create(payload);
+  const recording = await PodcastRecording.create(payload);
+  return serializeRecording(recording);
 };
 
 const trimRecording = async (id, data) => {
@@ -440,7 +441,7 @@ const trimRecording = async (id, data) => {
     },
   });
 
-  return trimmed;
+  return serializeRecording(trimmed);
 };
 
 
@@ -459,19 +460,33 @@ const adjustVolume = async (id, data) => {
   }
 
   // Generate unique dest filename
-  const ext = path.extname(srcFileName).toLowerCase();
+  const ext = path.extname(srcFileName).toLowerCase() || '.mp3';
   const destFileName = `audio-vol-${payload.volumeMultiplier}x-${Date.now()}-${path.parse(srcFileName).name}${ext}`;
   const destPath = path.join(uploadDir, destFileName);
 
-  // Physically copy the file
-  fs.copyFileSync(srcPath, destPath);
+  const ffmpeg = require('fluent-ffmpeg');
+  const ffmpegInstaller = require('@ffmpeg-installer/ffmpeg');
+  ffmpeg.setFfmpegPath(ffmpegInstaller.path);
+
+  await new Promise((resolve, reject) => {
+    ffmpeg(srcPath)
+      .audioFilters(`volume=${payload.volumeMultiplier}`)
+      .output(destPath)
+      .audioCodec('libmp3lame')
+      .on('end', resolve)
+      .on('error', reject)
+      .run();
+  });
+
+  const stats = fs.existsSync(destPath) ? fs.statSync(destPath) : null;
+  const fileSizeBytes = stats ? stats.size : original.fileSizeBytes;
 
   const adjusted = await PodcastRecording.create({
     name: `${original.name} (Vol ${payload.volumeMultiplier}x)`,
     duration: original.duration,
     durationSeconds: original.durationSeconds,
-    size: original.size,
-    fileSizeBytes: original.fileSizeBytes,
+    size: formatBytes(fileSizeBytes),
+    fileSizeBytes,
     storageKey: destFileName,
     fileUrl: `/uploads/${destFileName}`,
     mimeType: original.mimeType,
@@ -484,20 +499,21 @@ const adjustVolume = async (id, data) => {
     },
   });
 
-  return adjusted;
+  return serializeRecording(adjusted);
 };
 
 const deleteRecording = async (id) => {
   const recording = await PodcastRecording.findByPk(parseId(id));
   if (!recording) throw notFound('Recording not found');
 
+  const serialized = serializeRecording(recording);
   const fileUrl = recording.fileUrl;
   await recording.destroy();
 
   if (fileUrl) {
     await deleteUploadedFile(fileUrl);
   }
-  return recording;
+  return serialized;
 };
 
 const getLiveSessions = async (query = {}) => {
@@ -695,6 +711,10 @@ const {
   muteGuestSlot,
   setGuestSlotVolume,
   getGuestSlotVolume,
+  getLegacyGuests,
+  joinLegacyGuest,
+  respondToLegacyGuest,
+  removeLegacyGuest,
 } = require('./podcast.guest.service');
 
 module.exports = {
@@ -725,6 +745,11 @@ module.exports = {
   muteGuestSlot,
   setGuestSlotVolume,
   getGuestSlotVolume,
+  // Legacy approval-flow guests
+  getLegacyGuests,
+  joinLegacyGuest,
+  respondToLegacyGuest,
+  removeLegacyGuest,
   // Notifications
   getNotifications,
   createNotification,

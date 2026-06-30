@@ -19,6 +19,7 @@ import { SongRequests, SongRequest } from '../SongRequests';
 import { useAppStore } from '../../../../store/useAppStore';
 import { audio } from '../../../../services/audio';
 import SpeakRequests, { SpeakRequest } from '../SpeakRequests';
+import { rjSocket } from '../../../../services/socketService';
 import {
   RjChatBridge,
   RjGiftStickerBridge,
@@ -87,7 +88,7 @@ interface RjSetupModalProps {
   isPlayingB: boolean;
   isLocalAudioMuted: boolean;
   onToggleLocalAudioMuted: () => void;
-  activePlayer: 'A' | 'B';
+  activePlayer: 'A' | 'B' | null;
   crossfadeValue: number;
   isCrossfading: boolean;
   onCrossfade: (targetValue: number) => void;
@@ -115,11 +116,11 @@ interface RjSetupModalProps {
 // ─── DEFAULT MICS ─────────────────────────────────────────────────────────────
 
 const DEFAULT_MICS: LegacyMic[] = [
-  { id: '1', name: 'Sejal',       label: 'RJ Mic 1',      isActive: true,  isMuted: false, gain: 51, hi: 50, mid: 50, low: 50, fader: 65, input: 'Input 1'   },
-  { id: '2', name: 'Leo',         label: 'Guest Mic 1',   isActive: false, isMuted: false, gain: 35, hi: 50, mid: 50, low: 50, fader: 65, input: 'Input 2'   },
-  { id: '3', name: 'Riya',        label: 'Guest Mic 2',   isActive: false, isMuted: false, gain: 73, hi: 50, mid: 50, low: 50, fader: 65, input: 'Input 3'   },
-  { id: '4', name: 'Arjun',       label: 'Guest Mic 3',   isActive: false, isMuted: false, gain: 40, hi: 50, mid: 50, low: 50, fader: 65, input: 'Input 4'   },
-  { id: '5', name: 'Live Caller', label: 'Call-in Mic 1', isActive: false, isMuted: false, gain: 50, hi: 50, mid: 50, low: 50, fader: 65, input: 'Call In 1' },
+  { id: '1', name: 'Sejal',       label: 'RJ Mic 1',      isActive: true,  isMuted: true, gain: 51, hi: 50, mid: 50, low: 50, fader: 65, input: 'Input 1'   },
+  { id: '2', name: 'Leo',         label: 'Guest Mic 1',   isActive: false, isMuted: true, gain: 35, hi: 50, mid: 50, low: 50, fader: 65, input: 'Input 2'   },
+  { id: '3', name: 'Riya',        label: 'Guest Mic 2',   isActive: false, isMuted: true, gain: 73, hi: 50, mid: 50, low: 50, fader: 65, input: 'Input 3'   },
+  { id: '4', name: 'Arjun',       label: 'Guest Mic 3',   isActive: false, isMuted: true, gain: 40, hi: 50, mid: 50, low: 50, fader: 65, input: 'Input 4'   },
+  { id: '5', name: 'Live Caller', label: 'Call-in Mic 1', isActive: false, isMuted: true, gain: 50, hi: 50, mid: 50, low: 50, fader: 65, input: 'Call In 1' },
 ];
 
 // ─── MIC CHANNEL TYPE ─────────────────────────────────────────────────────────
@@ -170,13 +171,13 @@ function legacyToMicChannels(allMics: LegacyMic[], availableDevices?: string[]):
       label,
       name,
       input,
-      isOnAir: idx === 0 ? !!mic.isActive : false,
+      isOnAir: !!mic.isActive,
       gain: mic.gain ?? 50,
       hi: mic.hi ?? 50,
       mid: mic.mid ?? 50,
       low: mic.low ?? 50,
       fader: mic.fader ?? 65,
-      muted: !!mic.isMuted,
+      muted: mic.isMuted !== undefined ? !!mic.isMuted : true,
       soloed: false,
       vuL: mic.volume ?? 0,
       vuR: mic.volume ?? 0,
@@ -192,11 +193,24 @@ function applyChannelChange(
   onToggleMicActive: (id: string) => void,
   onUpdateMicDevice: (id: string, deviceName: string) => void,
 ) {
-  const mic = allMics[channelId - 1];
-  if (!mic) return;
-  if ('muted' in changes && changes.muted !== !!mic.isMuted) onToggleMicMute(mic.id);
-  if ('isOnAir' in changes && channelId === 1 && changes.isOnAir !== !!mic.isActive) onToggleMicActive(mic.id);
-  if ('input' in changes && changes.input !== mic.input) onUpdateMicDevice(mic.id, changes.input!);
+  const micId = allMics[channelId - 1]?.id || `mic${channelId}`;
+  const mic = allMics.find(m => m.id === micId);
+
+  if (mic) {
+    if ('muted' in changes && changes.muted !== !!mic.isMuted) onToggleMicMute(mic.id);
+    if ('isOnAir' in changes && changes.isOnAir !== !!mic.isActive) onToggleMicActive(mic.id);
+    if ('input' in changes && changes.input !== mic.input) onUpdateMicDevice(mic.id, changes.input!);
+  } else {
+    if ('input' in changes && changes.input) {
+      onUpdateMicDevice(micId, changes.input);
+    }
+    if ('muted' in changes) {
+      onToggleMicMute(micId);
+    }
+    if ('isOnAir' in changes) {
+      onToggleMicActive(micId);
+    }
+  }
 }
 
 const percentToMicGain = (value: number) => Math.max(0, value / 50);
@@ -210,6 +224,7 @@ export const RjSetupModal: React.FC<RjSetupModalProps> = ({
   isDarkMode,
   colors,
   isLive,
+  studioId,
   timerFormatted,
   timerIsPaused,
   onClose,
@@ -258,39 +273,16 @@ export const RjSetupModal: React.FC<RjSetupModalProps> = ({
   const speakRequests = rjStudio.speakRequests || [];
 
   const handleAcceptSpeakRequest = useCallback((request: SpeakRequest) => {
-    const updated = speakRequests.map(r => r.id === request.id ? { ...r, status: 'accepted' as const } : r);
-    const newMic = {
-      id: `mic_${Date.now()}`,
-      name: request.userName.toUpperCase(),
-      avatar: request.userName.substring(0, 2).toUpperCase(),
-      isActive: true,
-      isMuted: false,
-      volume: 0,
-      isGuest: true,
-      guestId: `guest_${request.id}`,
-    };
-    updateRjStudioState({
-      speakRequests: updated,
-      rjMics: [...rjStudio.rjMics, newMic]
-    });
-    addRjNotification({
-      title: "Speak Request Accepted",
-      message: `🎙️ ${request.userName} is now live in the speaking queue!`,
-      type: "system" as const,
-      read: false,
-    });
-  }, [speakRequests, rjStudio.rjMics, updateRjStudioState, addRjNotification]);
+    const sid = studioId ? String(studioId) : '';
+    const slotId = (request as any).slotId || 'mic2';
+    rjSocket.acceptSpeakRequest(sid, slotId, request.id, request.userName);
+  }, [studioId]);
 
   const handleRejectSpeakRequest = useCallback((request: SpeakRequest) => {
-    const updated = speakRequests.map(r => r.id === request.id ? { ...r, status: 'rejected' as const } : r);
-    updateRjStudioState({ speakRequests: updated });
-    addRjNotification({
-      title: "Speak Request Rejected",
-      message: `❌ ${request.userName}'s speak request was declined.`,
-      type: "alert" as const,
-      read: false,
-    });
-  }, [speakRequests, updateRjStudioState, addRjNotification]);
+    const sid = studioId ? String(studioId) : '';
+    const slotId = (request as any).slotId || 'mic2';
+    rjSocket.rejectSpeakRequest(sid, slotId, request.id);
+  }, [studioId]);
 
   // ─── MIC STATE ────────────────────────────────────────────────
   const micsToUse = (allMics && allMics.length > 0) ? allMics : DEFAULT_MICS;
@@ -394,7 +386,7 @@ export const RjSetupModal: React.FC<RjSetupModalProps> = ({
         beatIntensity: 5,
         duration: track.duration ?? '03:30',
         channel: 1,
-        audioUrl: (track as any).filePath ?? (track as any).url ?? (track as any).uri ?? '',
+        audioUrl: (track as any).url ?? (track as any).uri ?? (track as any).filePath ?? '',
         artwork: '',
         shortTitle: track.title.substring(0, 20),
         gain: 0.8,
@@ -432,8 +424,22 @@ export const RjSetupModal: React.FC<RjSetupModalProps> = ({
   // ─── REMOVE SONG ──────────────────────────────────────────────
   // FIX: one handler, one list — works for both local files and URL tracks.
   const handleRemoveSong = useCallback((id: number) => {
+    const item = playlistTracks.find((t) => t.id === id);
+    const trackA = rjStudio.playerATrack;
+    const trackB = rjStudio.playerBTrack;
+
+    const hasA = item && trackA && item.title.toLowerCase() === trackA.title.toLowerCase();
+    const hasB = item && trackB && item.title.toLowerCase() === trackB.title.toLowerCase();
+
     setPlaylistTracks((prev) => prev.filter((t) => t.id !== id));
-  }, []);
+
+    if (hasA) {
+      onClearDeck('A');
+    }
+    if (hasB) {
+      onClearDeck('B');
+    }
+  }, [playlistTracks, rjStudio.playerATrack, rjStudio.playerBTrack, onClearDeck]);
 
   // ─── SHUFFLE ──────────────────────────────────────────────────
   // FIX: now shuffles the unified list — local files included.
@@ -452,10 +458,24 @@ export const RjSetupModal: React.FC<RjSetupModalProps> = ({
   // FIX: clears the unified list — previously only cleared playlistTracks,
   // leaving uploadedLocalFiles in place so tracks "came back".
   const handleClearPlaylist = useCallback(() => {
+    const pl = [...playlistTracks];
+    const trackA = rjStudio.playerATrack;
+    const trackB = rjStudio.playerBTrack;
+
+    const hasA = trackA && pl.some((t) => t.title.toLowerCase() === trackA.title.toLowerCase());
+    const hasB = trackB && pl.some((t) => t.title.toLowerCase() === trackB.title.toLowerCase());
+
     setPlaylistTracks([]);
     setIsPlaylistActive(false);
     setIsPlaylistPaused(false);
-  }, []);
+
+    if (hasA) {
+      onClearDeck('A');
+    }
+    if (hasB) {
+      onClearDeck('B');
+    }
+  }, [playlistTracks, rjStudio.playerATrack, rjStudio.playerBTrack, onClearDeck]);
 
   // ─── URL SUBMIT ───────────────────────────────────────────────
   // FIX: was console.log — PlaylistModal also calls onAddTrack which
@@ -479,7 +499,23 @@ export const RjSetupModal: React.FC<RjSetupModalProps> = ({
   const handleSetDuration    = useCallback((_d: number) => {}, []);
   const handleSetCustomDuration = useCallback((_v: string) => {}, []);
   const handlePlayTrack      = useCallback((_t: PlaylistTrack) => {}, []);
-  const handleRemoveTrack    = useCallback((id: number) => { setPlaylistTracks((p) => p.filter((t) => t.id !== id)); }, []);
+  const handleRemoveTrack    = useCallback((id: number) => {
+    const item = playlistTracks.find((t) => t.id === id);
+    const trackA = rjStudio.playerATrack;
+    const trackB = rjStudio.playerBTrack;
+
+    const hasA = item && trackA && item.title.toLowerCase() === trackA.title.toLowerCase();
+    const hasB = item && trackB && item.title.toLowerCase() === trackB.title.toLowerCase();
+
+    setPlaylistTracks((p) => p.filter((t) => t.id !== id));
+
+    if (hasA) {
+      onClearDeck('A');
+    }
+    if (hasB) {
+      onClearDeck('B');
+    }
+  }, [playlistTracks, rjStudio.playerATrack, rjStudio.playerBTrack, onClearDeck]);
   const handleCue            = useCallback(() => {}, []);
   const handleListenToggle   = useCallback(() => { setIsListening((p) => !p); }, []);
   const formatTimer          = useCallback((minutes: number) => {
@@ -550,7 +586,7 @@ export const RjSetupModal: React.FC<RjSetupModalProps> = ({
                   </Text>
                   <Text style={{ fontSize: 12, color: textMuted }}>Listeners: Listeners: {(nowPlaying as any).listeners || 0}</Text>
                   <Text style={{ fontSize: 13, fontWeight: '500', color: textMuted }}>Bitrate: 192 kbps</Text>
-                  <Text style={{ fontSize: 13, fontWeight: '500', color: '#22c55e' }}>Server: Connected</Text>
+                  <Text style={{ fontSize: 13, fontWeight: '500', color: '#22c55e' }}>Server: Online</Text>
                   <TouchableOpacity onPress={onToggleLive} style={{ paddingHorizontal: 16, paddingVertical: 8, borderRadius: 6, backgroundColor: '#DC2626' }}>
                     <Text style={{ fontSize: 13, fontWeight: '700', color: '#FFF' }}>STOP LIVE</Text>
                   </TouchableOpacity>
@@ -596,6 +632,9 @@ export const RjSetupModal: React.FC<RjSetupModalProps> = ({
                     onSwitchAtoB={onSwitchAtoB}
                     onPauseStandby={onPauseStandby} onStopStandby={onStopStandby}
                     onClearDeck={onClearDeck}
+                    onSync={(referenceDeck, targetDeck, tempoRatio) => {
+                      audio.setPitch(targetDeck, (tempoRatio - 1) * 100).catch(() => {});
+                    }}
                   />
                 </View>
                 <View style={{ marginTop: 16 }}>
@@ -645,14 +684,6 @@ export const RjSetupModal: React.FC<RjSetupModalProps> = ({
                   onScroll={chat.onChatScroll}
                 />
 
-                <SpeakRequests
-                  requests={speakRequests}
-                  onAccept={handleAcceptSpeakRequest}
-                  onReject={handleRejectSpeakRequest}
-                  isDarkMode={isDarkMode}
-                  colors={colors}
-                />
-
                 {/* ── PLAYLIST ── */}
                 <PlaylistModal
                   playlist={playlistTracks}
@@ -695,6 +726,14 @@ export const RjSetupModal: React.FC<RjSetupModalProps> = ({
                   
                   onLoadToStandby={handleLoadToStandby}
                   currentlyPlayingTrackId={currentlyPlayingTrackId}
+                />
+
+                <SpeakRequests
+                  requests={speakRequests}
+                  onAccept={handleAcceptSpeakRequest}
+                  onReject={handleRejectSpeakRequest}
+                  isDarkMode={isDarkMode}
+                  colors={colors}
                 />
 
                 <SongRequests

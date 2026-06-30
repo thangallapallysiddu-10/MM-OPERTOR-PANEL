@@ -16,6 +16,8 @@ import {
 import { Feather } from '@expo/vector-icons';
 import { podcastSocket } from '../services/socketService';
 import { useAppStore } from '../store/useAppStore';
+import { podcastApi } from '../services/api';
+import { StorageService } from '../services/storageService';
 
 interface Message {
   id: string;
@@ -30,10 +32,12 @@ interface GuestRoomProps {
   slotId: string;
   roomId: string;
   guestName: string;
+  guestId?: number;
+  guestToken?: string;
   onLeave: () => void;  // ← This goes back to GuestJoinPage
 }
 
-export default function GuestRoom({ slotId, roomId, guestName, onLeave }: GuestRoomProps) {
+export default function GuestRoom({ slotId, roomId, guestName, guestId, guestToken, onLeave }: GuestRoomProps) {
   // ─── Audio State ──────────────────────────────────────────────────────────
   const [isMicOn, setIsMicOn] = useState(true);
   const [isMuted, setIsMuted] = useState(false);
@@ -58,16 +62,8 @@ export default function GuestRoom({ slotId, roomId, guestName, onLeave }: GuestR
   const [chatInput, setChatInput] = useState('');
   const flatListRef = useRef<FlatList>(null);
 
-  const { rjStudio, updateRjStudioState, addRjNotification } = useAppStore();
-  const speakRequests = rjStudio.speakRequests || [];
-  const guestRequest = speakRequests.find(r => r.userName === guestName);
-
-  useEffect(() => {
-    if (guestRequest?.status === 'accepted') {
-      setIsMicOn(true);
-      setIsMuted(false);
-    }
-  }, [guestRequest?.status]);
+  const [speakRequestStatus, setSpeakRequestStatus] = useState<'none' | 'pending' | 'accepted' | 'rejected'>('none');
+  const [requestId, setRequestId] = useState<string | null>(null);
 
   // ─── Timer ─────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -94,6 +90,8 @@ export default function GuestRoom({ slotId, roomId, guestName, onLeave }: GuestR
           roomId,
           slotId,
           guestName,
+          guestId,
+          guestToken,
         });
 
         // Add chat system message
@@ -157,10 +155,55 @@ export default function GuestRoom({ slotId, roomId, guestName, onLeave }: GuestR
           if (!active) return;
           if (payload.slotId === slotId) {
             Alert.alert('Kicked', `You were disconnected by the host: ${payload.reason || 'No reason'}`);
-            onLeave();
+            void (async () => {
+              try {
+                const tokenKey = `@guest_token:${roomId}:${slotId}`;
+                await StorageService.removeCustomItem(tokenKey);
+                await StorageService.removeCustomItem(`@guest_id:${roomId}:${slotId}`);
+              } catch (e) {}
+              onLeave();
+            })();
           }
         });
         if (offRemoved) cleanups.push(offRemoved);
+
+        // Listen for speak request accepted
+        const offSpeakAccepted = podcastSocket.onSpeakRequestAccepted((payload: any) => {
+          if (!active) return;
+          setSpeakRequestStatus('accepted');
+          setIsMicOn(true);
+          setIsMuted(false);
+          setMessages(prev => [
+            ...prev,
+            {
+              id: `speak-accepted-${Date.now()}`,
+              sender: 'System',
+              text: `🎙️ Your speak request was accepted! You are now live.`,
+              time: new Date().toLocaleTimeString(),
+              isHost: false,
+              isSystem: true,
+            }
+          ]);
+        });
+        if (offSpeakAccepted) cleanups.push(offSpeakAccepted);
+
+        // Listen for speak request rejected
+        const offSpeakRejected = podcastSocket.onSpeakRequestRejected((payload: any) => {
+          if (!active) return;
+          setSpeakRequestStatus('rejected');
+          setMessages(prev => [
+            ...prev,
+            {
+              id: `speak-rejected-${Date.now()}`,
+              sender: 'System',
+              text: `❌ Your speak request was declined.`,
+              time: new Date().toLocaleTimeString(),
+              isHost: false,
+              isSystem: true,
+            }
+          ]);
+        });
+        if (offSpeakRejected) cleanups.push(offSpeakRejected);
 
       } catch (err) {
         if (!active) return;
@@ -174,7 +217,7 @@ export default function GuestRoom({ slotId, roomId, guestName, onLeave }: GuestR
     return () => {
       active = false;
       cleanups.forEach(fn => fn());
-      podcastSocket.guestLeft({ roomId, slotId });
+      podcastSocket.guestLeft({ roomId, slotId, guestToken });
       podcastSocket.disconnect();
     };
   }, [roomId, slotId, guestName]);
@@ -203,7 +246,6 @@ export default function GuestRoom({ slotId, roomId, guestName, onLeave }: GuestR
     return () => clearInterval(interval);
   }, []);
 
-  // ─── Send Message ──────────────────────────────────────────────────────────
   const sendMessage = () => {
     const text = chatInput.trim();
     if (!text || isDisconnected) return;
@@ -270,14 +312,29 @@ export default function GuestRoom({ slotId, roomId, guestName, onLeave }: GuestR
   // NOTE: Alert.alert with multiple buttons does NOT render any UI on web
   // (React Native Web), so on web it silently does nothing and the button
   // looks broken. We branch by platform and use window.confirm on web.
-  const handleLeave = () => {
+  const handleLeave = async () => {
+    const confirmLeave = async () => {
+      try {
+        const tokenKey = `@guest_token:${roomId}:${slotId}`;
+        const token = guestToken || await StorageService.getCustomItem(tokenKey);
+        if (token) {
+          await podcastApi.leaveGuestSlot({ roomId, slotId, guestToken: token });
+        }
+        await StorageService.removeCustomItem(tokenKey);
+        await StorageService.removeCustomItem(`@guest_id:${roomId}:${slotId}`);
+      } catch (e) {
+        console.error('Failed to voluntarily leave slot:', e);
+      }
+      onLeave();
+    };
+
     if (Platform.OS === 'web') {
       const confirmed =
         typeof window !== 'undefined'
           ? window.confirm('Are you sure you want to leave the podcast?')
           : true;
       if (confirmed) {
-        onLeave();
+        await confirmLeave();
       }
       return;
     }
@@ -290,8 +347,8 @@ export default function GuestRoom({ slotId, roomId, guestName, onLeave }: GuestR
         {
           text: 'Leave',
           style: 'destructive',
-          onPress: () => {
-            onLeave();
+          onPress: async () => {
+            await confirmLeave();
           },
         },
       ]
@@ -438,24 +495,14 @@ export default function GuestRoom({ slotId, roomId, guestName, onLeave }: GuestR
           <Text style={styles.sectionTitle}>Speak Request (Open Connect)</Text>
           
           <View style={{ marginTop: 4 }}>
-            {!guestRequest && (
+            {speakRequestStatus === 'none' && (
               <TouchableOpacity
                 onPress={() => {
-                  const newRequest = {
-                    id: `speak_${Date.now()}`,
-                    userName: guestName,
-                    timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }),
-                    status: 'pending' as const
-                  };
-                  updateRjStudioState({
-                    speakRequests: [...speakRequests, newRequest]
-                  });
-                  addRjNotification({
-                    title: "New Speak Request",
-                    message: `🎙️ ${guestName} wants to speak live!`,
-                    type: "request" as const,
-                    read: false,
-                  });
+                  const reqId = `speak_${Date.now()}`;
+                  setRequestId(reqId);
+                  setSpeakRequestStatus('pending');
+                  podcastSocket.speakRequest(roomId, slotId, guestName, reqId);
+                  
                   setMessages(prev => [
                     ...prev,
                     {
@@ -476,7 +523,7 @@ export default function GuestRoom({ slotId, roomId, guestName, onLeave }: GuestR
               </TouchableOpacity>
             )}
 
-            {guestRequest?.status === 'pending' && (
+            {speakRequestStatus === 'pending' && (
               <View
                 style={[
                   styles.controlButton,
@@ -494,7 +541,7 @@ export default function GuestRoom({ slotId, roomId, guestName, onLeave }: GuestR
               </View>
             )}
 
-            {guestRequest?.status === 'accepted' && (
+            {speakRequestStatus === 'accepted' && (
               <View
                 style={[
                   styles.controlButton,
@@ -512,7 +559,7 @@ export default function GuestRoom({ slotId, roomId, guestName, onLeave }: GuestR
               </View>
             )}
 
-            {guestRequest?.status === 'rejected' && (
+            {speakRequestStatus === 'rejected' && (
               <View style={{ gap: 8 }}>
                 <View
                   style={[
@@ -532,8 +579,8 @@ export default function GuestRoom({ slotId, roomId, guestName, onLeave }: GuestR
                 
                 <TouchableOpacity
                   onPress={() => {
-                    const updated = speakRequests.filter(r => r.userName !== guestName);
-                    updateRjStudioState({ speakRequests: updated });
+                    setSpeakRequestStatus('none');
+                    setRequestId(null);
                   }}
                   style={[styles.controlButton, { width: '100%', backgroundColor: 'rgba(255,255,255,0.06)', borderColor: 'rgba(255,255,255,0.15)' }]}
                   activeOpacity={0.8}

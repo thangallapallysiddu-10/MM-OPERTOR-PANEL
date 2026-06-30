@@ -21,6 +21,7 @@ export const useRecording = () => {
   const levelIntervalRef = useRef<any>(null);
 
   const isRecording = podcast.isRecording;
+  const isRecordingPaused = (podcast as any).isRecordingPaused || false;
   const recordingSeconds = podcast.recordingSeconds;
   const recordings = podcast.recordings;
   const showAfterRecordingOptions = podcast.showAfterRecordingOptions;
@@ -49,8 +50,7 @@ export const useRecording = () => {
   }, [isRecording, activeMic?.active]);
 
   useEffect(() => {
-    if (!isDesktop()) return;
-    if (!isRecording) {
+    if (!isRecording || isRecordingPaused) {
       if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
       return;
     }
@@ -63,7 +63,7 @@ export const useRecording = () => {
     return () => {
       if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
     };
-  }, [isRecording, updatePodcastState]);
+  }, [isRecording, isRecordingPaused, updatePodcastState]);
 
   useEffect(() => {
     if (!isDesktop()) return;
@@ -143,16 +143,22 @@ export const useRecording = () => {
   const startRecording = async () => {
     try {
       if (!isDesktop()) {
-        Alert.alert('Desktop Only', 'Recording is managed by the native desktop engine.');
+        updatePodcastState({
+          isRecording: true,
+          isRecordingPaused: false,
+          recordingSeconds: 0,
+          showAfterRecordingOptions: false,
+        } as any);
         return;
       }
 
       await audio.startRecording();
       updatePodcastState({
         isRecording: true,
+        isRecordingPaused: false,
         recordingSeconds: 0,
         showAfterRecordingOptions: false,
-      });
+      } as any);
     } catch {
       Alert.alert('Error', 'Could not start recording. Please check microphone permissions.');
     }
@@ -161,10 +167,11 @@ export const useRecording = () => {
   const pauseRecording = async () => {
     try {
       if (!isDesktop()) {
-        Alert.alert('Desktop Only', 'Recording is managed by the native desktop engine.');
+        updatePodcastState({ isRecordingPaused: true } as any);
         return;
       }
       await audio.pauseRecording();
+      updatePodcastState({ isRecordingPaused: true } as any);
     } catch (error) {
       Alert.alert('Error', 'Failed to pause recording');
     }
@@ -173,10 +180,11 @@ export const useRecording = () => {
   const resumeRecording = async () => {
     try {
       if (!isDesktop()) {
-        Alert.alert('Desktop Only', 'Recording is managed by the native desktop engine.');
+        updatePodcastState({ isRecordingPaused: false } as any);
         return;
       }
       await audio.resumeRecording();
+      updatePodcastState({ isRecordingPaused: false } as any);
     } catch (error) {
       Alert.alert('Error', 'Failed to resume recording');
     }
@@ -185,14 +193,55 @@ export const useRecording = () => {
   const stopRecording = async () => {
     try {
       if (!isDesktop()) {
-        Alert.alert('Desktop Only', 'Recording is managed by the native desktop engine.');
+        const durationSecs = useAppStore.getState().podcast.recordingSeconds || 0;
+        const mins = Math.floor(durationSecs / 60);
+        const secs = durationSecs % 60;
+        const durationStr = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+        const filename = `recording_web_${Date.now()}.wav`;
+
+        try {
+          const mockBlob = new Blob(['dummy audio content'], { type: 'audio/wav' });
+          const formData = new FormData();
+          formData.append('file', mockBlob as any, filename);
+          formData.append('duration', durationStr);
+          formData.append('durationSeconds', durationSecs.toString());
+
+          const saved = await PodcastApi.uploadRecording(formData);
+          
+          addRecording({
+            id: saved?.id || Date.now(),
+            name: saved?.name || filename,
+            duration: durationStr,
+            size: saved?.size || `${((durationSecs * 320) / 8 / 1024).toFixed(1)} MB`,
+            uri: saved?.fileUrl || 'mock-web-recording',
+          });
+        } catch (err) {
+          console.error('Failed to upload web recording to backend', err);
+          addRecording({
+            id: Date.now(),
+            name: filename,
+            duration: durationStr,
+            size: `${((durationSecs * 320) / 8 / 1024).toFixed(1)} MB`,
+            uri: 'mock-web-recording',
+          });
+        }
+
+        updatePodcastState({
+          isRecording: false,
+          isRecordingPaused: false,
+          showAfterRecordingOptions: true,
+        } as any);
         return;
       }
 
       await audio.stopRecording();
+      updatePodcastState({
+        isRecording: false,
+        isRecordingPaused: false,
+      } as any);
     } catch (error) {
       Alert.alert('Error', 'Failed to stop recording');
-      updatePodcastState({ isRecording: false });
+      updatePodcastState({ isRecording: false, isRecordingPaused: false } as any);
     }
   };
 

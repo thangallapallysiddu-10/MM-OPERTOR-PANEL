@@ -18,7 +18,7 @@ import Sidebar from './components/layout/Sidebar';
 import { useAppStore } from './store/useAppStore';
 
 const Dashboard = lazy(() => import('./pages/Dashboard'));
-const RJStudio = lazy(() => import('./features/rj'));
+import RJStudio from './features/rj';
 const PodcastUpload = lazy(() => import('./features/podcast/PodcastUpload'));
 
 const Profile = lazy(() => import('./pages/Profile'));
@@ -63,9 +63,39 @@ const InvalidRoomPage = () => (
   </View>
 );
 
+const routeMap: Record<string, string> = {
+  'Dashboard': '/',
+  'RJStudio': '/rj',
+  'Podcast': '/podcast',
+  'Profile': '/profile',
+  'EpisodeManager': '/episodes'
+};
+
+const pathMap: Record<string, string> = {
+  '/': 'Dashboard',
+  '/rj': 'RJStudio',
+  '/podcast': 'Podcast',
+  '/profile': 'Profile',
+  '/episodes': 'EpisodeManager'
+};
+
 function AppContent({ onLogout }: { onLogout: () => Promise<void> }) {
   const { dashboardDarkMode } = useAppStore();
-  const [currentScreen, setCurrentScreen] = useState<string>('Dashboard');
+  const [currentScreen, setCurrentScreen] = useState<string>(() => {
+    if (isWeb && typeof window !== 'undefined') {
+      const path = window.location.pathname;
+      if (!path.match(/\/podcast\/guest\//)) {
+        if (pathMap[path]) {
+          return pathMap[path];
+        }
+        const saved = localStorage.getItem('currentScreen');
+        if (saved && ['Dashboard', 'RJStudio', 'Podcast', 'EpisodeManager', 'Profile'].includes(saved)) {
+          return saved;
+        }
+      }
+    }
+    return 'Dashboard';
+  });
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [pageState, setPageState] = useState<'host' | 'guest_slot' | 'invalid'>('host');
 
@@ -93,6 +123,75 @@ function AppContent({ onLogout }: { onLogout: () => Promise<void> }) {
         setPageState('invalid');
       }
     }
+  }, []);
+
+  // Sync state changes with localStorage and browser url path
+  useEffect(() => {
+    if (isWeb) {
+      localStorage.setItem('currentScreen', currentScreen);
+      const path = window.location.pathname;
+      if (!path.match(/\/podcast\/guest\//)) {
+        const newPath = routeMap[currentScreen] || '/';
+        if (path !== newPath) {
+          window.history.pushState({}, '', newPath);
+        }
+      }
+    }
+  }, [currentScreen]);
+
+  // Support browser Back/Forward navigation buttons
+  useEffect(() => {
+    if (isWeb) {
+      const handlePopState = () => {
+        const path = window.location.pathname;
+        if (pathMap[path]) {
+          setCurrentScreen(pathMap[path]);
+        }
+      };
+      window.addEventListener('popstate', handlePopState);
+      return () => window.removeEventListener('popstate', handlePopState);
+    }
+  }, []);
+
+  // Check scheduled events time redirect
+  useEffect(() => {
+    if (!isWeb) return;
+
+    const checkScheduledEvents = () => {
+      const saved = localStorage.getItem('scheduledEvents');
+      if (!saved) return;
+
+      try {
+        const events = JSON.parse(saved);
+        const now = new Date();
+        let changed = false;
+
+        const updatedEvents = events.map((event: any) => {
+          if (event.isActive) {
+            const eventTime = new Date(event.date);
+            // Check if current time matches or is past the scheduled time
+            if (now >= eventTime) {
+              // Trigger auto setup and navigation
+              localStorage.setItem('autoStartLive', 'true');
+              setCurrentScreen('RJStudio');
+              event.isActive = false;
+              changed = true;
+            }
+          }
+          return event;
+        });
+
+        if (changed) {
+          localStorage.setItem('scheduledEvents', JSON.stringify(updatedEvents));
+          window.dispatchEvent(new Event('storage'));
+        }
+      } catch (e) {
+        console.error('[ScheduledEventsChecker] Error:', e);
+      }
+    };
+
+    const interval = setInterval(checkScheduledEvents, 2000);
+    return () => clearInterval(interval);
   }, []);
 
   // ── Guest slot join page (no auth required) ────────────────────────────────
@@ -132,7 +231,7 @@ function AppContent({ onLogout }: { onLogout: () => Promise<void> }) {
   const renderScreen = () => {
     switch (currentScreen) {
       case 'Dashboard': return <Suspense fallback={<View style={styles.centered}><ActivityIndicator size="large" color="#000000" /></View>}><Dashboard navigation={navigation} /></Suspense>;
-      case 'RJStudio': return <Suspense fallback={<View style={styles.centered}><ActivityIndicator size="large" color="#000000" /></View>}><RJStudio navigation={navigation} /></Suspense>;
+      case 'RJStudio': return <RJStudio navigation={navigation} />;
       case 'Podcast': 
       case 'EpisodeManager':
         return <Suspense fallback={<View style={styles.centered}><ActivityIndicator size="large" color="#000000" /></View>}><PodcastUpload view={currentScreen === 'EpisodeManager' ? 'manager' : 'studio'} /></Suspense>;

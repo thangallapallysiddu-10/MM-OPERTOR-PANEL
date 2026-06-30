@@ -195,6 +195,32 @@ export default function RemoteGuestsPanel({
 }: RemoteGuestsPanelProps) {
   const [seats, setSeats] = useState<GuestSeat[]>(initialSeats ?? DEFAULT_SEATS);
   const [copiedSeatId, setCopiedSeatId] = useState<string | null>(null);
+  const [showMicRequestConfirm, setShowMicRequestConfirm] = useState(false);
+  const [activeSeatForConfirm, setActiveSeatForConfirm] = useState<GuestSeat | null>(null);
+
+  const confirmAccept = useCallback((seat: GuestSeat) => {
+    setSeats((prev) =>
+      prev.map((s) =>
+        s.id === seat.id ? { ...s, status: "connected", signalStrength: 3 } : s
+      )
+    );
+    if (seat.slotId) {
+      const idx = seat.slotId === "mic2" ? 1 : seat.slotId === "mic3" ? 2 : seat.slotId === "mic4" ? 3 : 4;
+      useAppStore.getState().updateMic(idx, { active: true, muted: false });
+    }
+  }, []);
+
+  const confirmCancel = useCallback(
+    (seat: GuestSeat) => {
+      setSeats((prev) =>
+        prev.map((s) =>
+          s.id === seat.id ? { ...s, status: "offline", inviteUrl: undefined } : s
+        )
+      );
+      onCancelInvite?.(seat);
+    },
+    [onCancelInvite]
+  );
 
   const { podcast } = useAppStore();
   const guestSlots = podcast.guestSlots;
@@ -313,7 +339,7 @@ export default function RemoteGuestsPanel({
       <style>{`
         .rg-row {
           display: grid;
-          grid-template-columns: 24px 36px minmax(100px, 1.2fr) minmax(80px, 1fr) minmax(110px, 1fr) 80px minmax(180px, auto);
+          grid-template-columns: 24px 36px minmax(60px, 1.2fr) minmax(50px, 1fr) minmax(80px, 1fr) 60px auto;
           align-items: center;
           gap: 12px;
           padding: 12px 4px;
@@ -326,28 +352,29 @@ export default function RemoteGuestsPanel({
           align-items: center;
           gap: 8px;
           justify-content: flex-end;
+          flex-wrap: wrap;
         }
-        @media (max-width: 860px) {
+        @media (max-width: 1024px) {
           .rg-row {
             grid-template-columns: 24px 36px 1fr 1fr;
             row-gap: 14px;
             padding: 16px 4px;
           }
           .rg-actions {
-            grid-column: span 4;
+            grid-column: 1 / -1;
             justify-content: flex-start;
             border-top: 1px solid rgba(255,255,255,0.03);
             padding-top: 8px;
             margin-top: 2px;
           }
         }
-        @media (max-width: 480px) {
+        @media (max-width: 600px) {
           .rg-row {
             grid-template-columns: 24px 1fr;
             row-gap: 10px;
           }
           .rg-actions {
-            grid-column: span 2;
+            grid-column: 1 / -1;
           }
         }
       `}</style>
@@ -440,8 +467,11 @@ export default function RemoteGuestsPanel({
                 </ActionButton>
               )}
               {seat.status === "waiting" && (
-                <ActionButton variant="neutral" onClick={() => cancelInvite(seat)}>
-                  Cancel Invite
+                <ActionButton variant="ghost" onClick={() => {
+                  setActiveSeatForConfirm(seat);
+                  setShowMicRequestConfirm(true);
+                }}>
+                  Accept Invite
                 </ActionButton>
               )}
               {seat.status === "offline" && (
@@ -454,6 +484,133 @@ export default function RemoteGuestsPanel({
           </div>
         ))}
       </div>
+
+      {/* ─── CUSTOM MIC REQUEST & INVITE CONFIRMATION MODAL ─── */}
+      {showMicRequestConfirm && activeSeatForConfirm && (
+        <div style={{
+          position: "fixed",
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: "rgba(0, 0, 0, 0.82)",
+          display: "flex",
+          justifyContent: "center",
+          alignItems: "center",
+          zIndex: 9999,
+          fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+        }}>
+          <div style={{
+            width: "100%",
+            maxWidth: 380,
+            backgroundColor: "#1E293B",
+            borderRadius: 16,
+            borderWidth: 1,
+            borderStyle: "solid",
+            borderColor: "#334155",
+            padding: 24,
+            boxSizing: "border-box",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            boxShadow: "0 10px 25px -5px rgba(0,0,0,0.5), 0 8px 10px -6px rgba(0,0,0,0.5)",
+          }}>
+            {/* Warning Circle Icon */}
+            <div style={{
+              width: 50,
+              height: 50,
+              borderRadius: "50%",
+              backgroundColor: "rgba(34, 197, 94, 0.12)",
+              display: "flex",
+              justifyContent: "center",
+              alignItems: "center",
+              marginBottom: 16,
+              color: "#22c55e",
+              fontSize: 22,
+            }}>
+              🎙️
+            </div>
+
+            <h3 style={{
+              margin: "0 0 8px 0",
+              fontSize: 17,
+              fontWeight: 700,
+              color: "#f8fafc",
+              textAlign: "center",
+            }}>
+              Guest Mic Request
+            </h3>
+
+            <p style={{
+              margin: "0 0 24px 0",
+              fontSize: 14,
+              color: "#94a3b8",
+              textAlign: "center",
+              lineHeight: 1.5,
+              fontWeight: 500,
+            }}>
+              Really want to accept?
+            </p>
+
+            <div style={{
+              display: "flex",
+              gap: 12,
+              width: "100%",
+            }}>
+              {/* Cancel the Request Button (Red) */}
+              <button
+                type="button"
+                onClick={() => {
+                  setShowMicRequestConfirm(false);
+                  confirmCancel(activeSeatForConfirm);
+                }}
+                style={{
+                  flex: 1,
+                  height: 38,
+                  borderRadius: 6,
+                  backgroundColor: "#ef4444",
+                  border: "none",
+                  color: "#ffffff",
+                  fontSize: 12,
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  transition: "background-color 150ms ease",
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = "#dc2626"}
+                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = "#ef4444"}
+              >
+                Cancel the Request
+              </button>
+
+              {/* Accept Invite Button (Green) */}
+              <button
+                type="button"
+                onClick={() => {
+                  setShowMicRequestConfirm(false);
+                  confirmAccept(activeSeatForConfirm);
+                }}
+                style={{
+                  flex: 1,
+                  height: 38,
+                  borderRadius: 6,
+                  backgroundColor: "#22c55e",
+                  border: "none",
+                  color: "#ffffff",
+                  fontSize: 12,
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  transition: "background-color 150ms ease",
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = "#16a34a"}
+                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = "#22c55e"}
+              >
+                Accept Invite
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </section>
   );
 }

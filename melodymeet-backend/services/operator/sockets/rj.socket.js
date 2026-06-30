@@ -211,6 +211,88 @@ const rjSocket = (io) => {
       }
     });
 
+
+    socket.on('speak_request', ({ studioId, userName } = {}) => {
+      const roomId = String(studioId || socket.data.studioId || '').trim();
+      if (!roomId || !userName) return;
+      // Relay to all operators in the studio room
+      socket.to(roomId).emit('rj_speak_request', {
+        userName: String(userName).trim(),
+        studioId: roomId,
+        timestamp: new Date().toISOString(),
+      });
+    });
+
+    socket.on('song_request', ({ studioId, user, song } = {}) => {
+      const roomId = String(studioId || socket.data.studioId || '').trim();
+      if (!roomId || !song) return;
+      socket.to(roomId).emit('rj_song_requested', {
+        user: String(user || 'Listener').trim(),
+        song: String(song).trim(),
+        studioId: roomId,
+        timestamp: new Date().toISOString(),
+      });
+    });
+
+    socket.on('playlist_pause', async ({ studioId } = {}) => {
+      try {
+        const roomId = String(studioId || socket.data.studioId || '').trim();
+        const studio = await rjService.pausePlaylistSession(roomId);
+        rjNamespace.to(roomId).emit('rj_playlist_tick', {
+          isPlaylistActive: studio.isPlaylistActive,
+          isPlaylistPaused: studio.isPlaylistPaused,
+          playlistTimerRemaining: studio.playlistTimerRemaining,
+          studio,
+        });
+      } catch (err) {
+        handleSocketError(socket, err);
+      }
+    });
+
+    socket.on('playlist_resume', async ({ studioId } = {}) => {
+      try {
+        const roomId = String(studioId || socket.data.studioId || '').trim();
+        const studio = await rjService.resumePlaylistSession(roomId);
+        rjNamespace.to(roomId).emit('rj_playlist_tick', {
+          isPlaylistActive: studio.isPlaylistActive,
+          isPlaylistPaused: studio.isPlaylistPaused,
+          playlistTimerRemaining: studio.playlistTimerRemaining,
+          studio,
+        });
+      } catch (err) {
+        handleSocketError(socket, err);
+      }
+    });
+
+    socket.on('playlist_stop', async ({ studioId } = {}) => {
+      try {
+        const roomId = String(studioId || socket.data.studioId || '').trim();
+        const studio = await rjService.stopPlaylistSession(roomId);
+        rjNamespace.to(roomId).emit('rj_playlist_tick', {
+          isPlaylistActive: false,
+          isPlaylistPaused: false,
+          playlistTimerRemaining: 0,
+          studio,
+        });
+      } catch (err) {
+        handleSocketError(socket, err);
+      }
+    });
+
+    socket.on('playlist_advance', async ({ studioId } = {}) => {
+      try {
+        const roomId = String(studioId || socket.data.studioId || '').trim();
+        const result = await rjService.advancePlaylist(roomId);
+        rjNamespace.to(roomId).emit('rj_playlist_advanced', {
+          currentTrack: result.currentTrack,
+          studio: result.studio,
+        });
+        await emitStudioState(rjNamespace, roomId);
+      } catch (err) {
+        handleSocketError(socket, err);
+      }
+    });
+
     socket.on('disconnect', () => {
       console.log(`[RJ Socket] Disconnected: ${socket.id}`);
     });

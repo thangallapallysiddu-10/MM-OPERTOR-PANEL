@@ -263,7 +263,7 @@ interface RjStudioState {
   isPlayingB: boolean;
   wasPlayingA?: boolean;
   wasPlayingB?: boolean;
-  activePlayer: 'A' | 'B';
+  activePlayer: 'A' | 'B' | null;
   crossfadeValue: number;
   isCrossfading: boolean;
   playlist: PlaylistTrack[];
@@ -410,7 +410,7 @@ const initialRjStudioState: RjStudioState = {
   playerBTrack: null,
   isPlayingA: false,
   isPlayingB: false,
-  activePlayer: 'A',
+  activePlayer: null,
   crossfadeValue: 50,
   isCrossfading: false,
   playlist: [],
@@ -426,8 +426,11 @@ const initialRjStudioState: RjStudioState = {
   songRequests: [],
 
   rjMics: [
-    { id: "mic1", name: "PLAYER ONE", avatar: "P1", isActive: false, isMuted: false, volume: 0 },
-    { id: "mic2", name: "PLAYER TWO", avatar: "P2", isActive: false, isMuted: false, volume: 0 },
+    { id: 'mic1', name: 'PLAYER ONE', avatar: 'P1', isActive: false, isMuted: true, volume: 0, input: 'Input 1' },
+    { id: 'mic2', name: 'PLAYER TWO', avatar: 'P2', isActive: false, isMuted: true, volume: 0, input: 'Input 2' },
+    { id: 'mic3', name: 'Riya', avatar: 'R', isActive: false, isMuted: true, volume: 0, input: 'Input 3' },
+    { id: 'mic4', name: 'Arjun', avatar: 'A', isActive: false, isMuted: true, volume: 0, input: 'Input 4' },
+    { id: 'mic5', name: 'Live Caller', avatar: 'LC', isActive: false, isMuted: true, volume: 0, input: 'Call In 1' },
   ],
   showAddMicModal: false,
   newMicName: "",

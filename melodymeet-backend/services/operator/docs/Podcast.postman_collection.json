@@ -1,0 +1,453 @@
+{
+  "info": {
+    "name": "MelodyMeet Podcast API",
+    "description": "Operator service podcast module — import into Postman.\nSet `baseUrl` (e.g. http://localhost:5000) and `token` (JWT from POST /api/auth/login).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:5000" },
+    { "key": "token", "value": "" },
+    { "key": "episodeId", "value": "1" },
+    { "key": "recordingId", "value": "1" },
+    { "key": "roomId", "value": "ABC12345" },
+    { "key": "slotId", "value": "mic2" },
+    { "key": "guestId", "value": "1" },
+    { "key": "notificationId", "value": "1" },
+    { "key": "micId", "value": "1" },
+    { "key": "guestToken", "value": "" }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }]
+  },
+  "item": [
+    {
+      "name": "Episodes",
+      "item": [
+        {
+          "name": "List Episodes",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/podcasts?page=1&limit=20"
+          }
+        },
+        {
+          "name": "Get Episode By Id",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/podcasts/{{episodeId}}"
+          }
+        },
+        {
+          "name": "Create Episode (metadata)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Morning Beats Ep. 1\",\n  \"description\": \"Pilot episode\",\n  \"genre\": \"Talk\",\n  \"seasonNumber\": 1,\n  \"episodeNumber\": 1,\n  \"status\": \"Draft\",\n  \"host\": \"DJ MAVERICK\"\n}"
+            },
+            "url": "{{baseUrl}}/api/podcasts"
+          }
+        },
+        {
+          "name": "Upload Episode (multipart)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "file", "type": "file", "src": "" },
+                { "key": "title", "value": "Uploaded Episode", "type": "text" },
+                { "key": "description", "value": "From file upload", "type": "text" },
+                { "key": "status", "value": "Draft", "type": "text" },
+                { "key": "coverArt", "type": "file", "src": "", "disabled": true }
+              ]
+            },
+            "url": "{{baseUrl}}/api/podcasts/upload"
+          }
+        },
+        {
+          "name": "Upload Cover Art",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [{ "key": "coverArt", "type": "file", "src": "" }]
+            },
+            "url": "{{baseUrl}}/api/podcasts/cover-art"
+          }
+        },
+        {
+          "name": "Update Episode",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Updated Title\",\n  \"description\": \"Updated description\"\n}"
+            },
+            "url": "{{baseUrl}}/api/podcasts/{{episodeId}}"
+          }
+        },
+        {
+          "name": "Update Episode Status",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"Published\"\n}"
+            },
+            "url": "{{baseUrl}}/api/podcasts/{{episodeId}}/status"
+          }
+        },
+        {
+          "name": "Delete Episode",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": "{{baseUrl}}/api/podcasts/{{episodeId}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Recordings",
+      "item": [
+        {
+          "name": "List Recordings",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/podcasts/recordings"
+          }
+        },
+        {
+          "name": "Upload Recording",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "file", "type": "file", "src": "" },
+                { "key": "name", "value": "Studio Take 1", "type": "text" },
+                { "key": "durationSeconds", "value": "180", "type": "text" }
+              ]
+            },
+            "url": "{{baseUrl}}/api/podcasts/recordings/upload"
+          }
+        },
+        {
+          "name": "Trim Recording",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"trimmed_take\",\n  \"trimRanges\": [{ \"start\": 10, \"end\": 25 }]\n}"
+            },
+            "url": "{{baseUrl}}/api/podcasts/recordings/{{recordingId}}/trim"
+          }
+        },
+        {
+          "name": "Adjust Volume",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"volumeMultiplier\": 1.5\n}"
+            },
+            "url": "{{baseUrl}}/api/podcasts/recordings/{{recordingId}}/volume"
+          }
+        },
+        {
+          "name": "Delete Recording",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": "{{baseUrl}}/api/podcasts/recordings/{{recordingId}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Live Sessions",
+      "item": [
+        {
+          "name": "List Live Sessions",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/podcasts/live/sessions"
+          }
+        },
+        {
+          "name": "Start Live Session",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Live Podcast\",\n  \"description\": \"Weekly show\",\n  \"roomId\": \"{{roomId}}\",\n  \"roomLink\": \"https://example.com?roomId={{roomId}}\",\n  \"host\": \"Operator\"\n}"
+            },
+            "url": "{{baseUrl}}/api/podcasts/live/start"
+          }
+        },
+        {
+          "name": "Stop Live Session",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"roomId\": \"{{roomId}}\",\n  \"peakViewers\": 42,\n  \"lastViewerCount\": 38\n}"
+            },
+            "url": "{{baseUrl}}/api/podcasts/live/stop"
+          }
+        },
+        {
+          "name": "Update Live Viewers",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"roomId\": \"{{roomId}}\",\n  \"viewerCount\": 15\n}"
+            },
+            "url": "{{baseUrl}}/api/podcasts/live/viewers"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Guest Slots",
+      "item": [
+        {
+          "name": "Generate Guest Links",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"roomId\": \"{{roomId}}\",\n  \"baseUrl\": \"http://localhost:8081\"\n}"
+            },
+            "url": "{{baseUrl}}/api/podcasts/guest-slots/links/generate"
+          }
+        },
+        {
+          "name": "Get Guest Slots",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/podcasts/guest-slots/slots/{{roomId}}"
+          }
+        },
+        {
+          "name": "Join Guest Slot (Public)",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"roomId\": \"{{roomId}}\",\n  \"slotId\": \"{{slotId}}\",\n  \"guestName\": \"Guest One\",\n  \"guestToken\": \"{{guestToken}}\"\n}"
+            },
+            "url": "{{baseUrl}}/api/podcasts/guest-slots/join"
+          }
+        },
+        {
+          "name": "Leave Guest Slot (Public)",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"roomId\": \"{{roomId}}\",\n  \"slotId\": \"{{slotId}}\",\n  \"guestToken\": \"{{guestToken}}\"\n}"
+            },
+            "url": "{{baseUrl}}/api/podcasts/guest-slots/leave"
+          }
+        },
+        {
+          "name": "Kick Guest Slot",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": "{{baseUrl}}/api/podcasts/guest-slots/slots/{{roomId}}/{{slotId}}"
+          }
+        },
+        {
+          "name": "Mute Guest Slot",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"muted\": true\n}"
+            },
+            "url": "{{baseUrl}}/api/podcasts/guest-slots/slots/{{roomId}}/{{slotId}}/mute"
+          }
+        },
+        {
+          "name": "Set Guest Slot Volume",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"volume\": 120\n}"
+            },
+            "url": "{{baseUrl}}/api/podcasts/guest-slots/slots/{{roomId}}/{{slotId}}/volume"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Legacy Guests",
+      "item": [
+        {
+          "name": "Join Live Guest Request (Public)",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"roomId\": \"{{roomId}}\",\n  \"name\": \"Caller One\",\n  \"device\": \"Web Browser\"\n}"
+            },
+            "url": "{{baseUrl}}/api/podcasts/live/guests/join"
+          }
+        },
+        {
+          "name": "List Legacy Guests",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/podcasts/live/guests/{{roomId}}?status=pending"
+          }
+        },
+        {
+          "name": "Respond To Guest",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"action\": \"approve\"\n}"
+            },
+            "url": "{{baseUrl}}/api/podcasts/live/guests/{{guestId}}/respond"
+          }
+        },
+        {
+          "name": "Remove Legacy Guest",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": "{{baseUrl}}/api/podcasts/live/guests/{{guestId}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Notifications",
+      "item": [
+        {
+          "name": "List Notifications",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/podcasts/notifications?limit=50"
+          }
+        },
+        {
+          "name": "Create Notification",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Episode Published\",\n  \"message\": \"Your podcast is live\",\n  \"type\": \"system\",\n  \"category\": \"dashboard\"\n}"
+            },
+            "url": "{{baseUrl}}/api/podcasts/notifications"
+          }
+        },
+        {
+          "name": "Mark Notification Read",
+          "request": {
+            "method": "PUT",
+            "header": [],
+            "url": "{{baseUrl}}/api/podcasts/notifications/{{notificationId}}/read"
+          }
+        },
+        {
+          "name": "Mark All Notifications Read",
+          "request": {
+            "method": "PUT",
+            "header": [],
+            "url": "{{baseUrl}}/api/podcasts/notifications/mark-all-read"
+          }
+        },
+        {
+          "name": "Clear Notifications",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": "{{baseUrl}}/api/podcasts/notifications"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Mics",
+      "item": [
+        {
+          "name": "List Mics",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/podcasts/mics"
+          }
+        },
+        {
+          "name": "Create Mic",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"MIC 6\",\n  \"type\": \"WIRELESS\",\n  \"active\": false,\n  \"phantom\": false,\n  \"gain\": 50,\n  \"volume\": 70,\n  \"muted\": true\n}"
+            },
+            "url": "{{baseUrl}}/api/podcasts/mics"
+          }
+        },
+        {
+          "name": "Update Mic",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"active\": true,\n  \"muted\": false,\n  \"volume\": 80\n}"
+            },
+            "url": "{{baseUrl}}/api/podcasts/mics/{{micId}}"
+          }
+        },
+        {
+          "name": "Delete Mic",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": "{{baseUrl}}/api/podcasts/mics/{{micId}}"
+          }
+        }
+      ]
+    }
+  ]
+}

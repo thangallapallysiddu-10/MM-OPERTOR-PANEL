@@ -45,6 +45,9 @@ export const RjApi = {
   removePlaylistItem: (studioId: string | number, itemId: string) =>
     apiDelete<unknown>(`${sid(studioId)}/playlist/items/${itemId}`),
 
+  reorderPlaylist: (studioId: string | number, body: { playlist: any[] }) =>
+    apiPut<unknown>(`${sid(studioId)}/playlist/reorder`, body),
+
   clearPlaylist: (studioId: string | number) =>
     apiDelete<unknown>(`${sid(studioId)}/playlist`),
 

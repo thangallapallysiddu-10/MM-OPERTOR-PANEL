@@ -78,7 +78,24 @@ const RJStudio = ({ navigation }: any) => {
   const [showNotificationsModal, setShowNotificationsModal] = useState(false);
   const [showRjSetupModal, setShowRjSetupModal] = useState(false);
   const [showScheduleModal, setShowScheduleModal] = useState(false);
-  const [scheduledEvents, setScheduledEvents] = useState<ScheduledEvent[]>([]);
+  const [scheduledEvents, setScheduledEvents] = useState<ScheduledEvent[]>(() => {
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      const saved = localStorage.getItem('scheduledEvents');
+      if (saved) {
+        try {
+          return JSON.parse(saved);
+        } catch (e) {}
+      }
+    }
+    return [];
+  });
+
+  // Sync scheduledEvents with localStorage on Web
+  useEffect(() => {
+    if (Platform.OS === 'web') {
+      localStorage.setItem('scheduledEvents', JSON.stringify(scheduledEvents));
+    }
+  }, [scheduledEvents]);
   
   const { user } = useAuth();
 
@@ -101,7 +118,52 @@ const RJStudio = ({ navigation }: any) => {
       'system',
       `📅 Live show scheduled: "${event.title}" at ${formatEventTime(event.date)}`
     );
+
+    // Auto-open Setup Modal and go live/online directly!
+    setShowScheduleModal(false);
+    setShowRjSetupModal(true);
+    if (!isLive) {
+      const selectedMic = rjStudio.rjMics.find((mic: any) => mic.isActive) ?? rjStudio.rjMics[0];
+      void audio.enableMicrophone((selectedMic as any)?.input || '').catch(() => {});
+      toggleLive();
+    }
   };
+
+  // Synchronize scheduledEvents across local storage updates
+  useEffect(() => {
+    if (Platform.OS !== 'web') return;
+    const handleStorageChange = () => {
+      const saved = localStorage.getItem('scheduledEvents');
+      if (saved) {
+        try {
+          setScheduledEvents(JSON.parse(saved));
+        } catch (e) {}
+      }
+    };
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
+  }, []);
+
+  // Listen for auto-start live stream requests
+  useEffect(() => {
+    if (Platform.OS !== 'web') return;
+    const checkAutoStart = () => {
+      const autoStart = localStorage.getItem('autoStartLive');
+      if (autoStart === 'true') {
+        localStorage.removeItem('autoStartLive');
+        setShowRjSetupModal(true);
+        if (!isLive) {
+          const selectedMic = rjStudio.rjMics.find((mic: any) => mic.isActive) ?? rjStudio.rjMics[0];
+          void audio.enableMicrophone((selectedMic as any)?.input || '').catch(() => {});
+          toggleLive();
+        }
+      }
+    };
+
+    checkAutoStart();
+    const interval = setInterval(checkAutoStart, 1000);
+    return () => clearInterval(interval);
+  }, [isLive, toggleLive, rjStudio.rjMics]);
 
   // Handle cancel event
   const handleCancelEvent = (eventId: string) => {
@@ -122,8 +184,8 @@ const RJStudio = ({ navigation }: any) => {
     }
   };
 
-  const formatEventTime = (date: Date) => {
-    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const formatEventTime = (date: Date | string) => {
+    return new Date(date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
 
   const handleLocalFilePlayTrack = (track: Track) => {

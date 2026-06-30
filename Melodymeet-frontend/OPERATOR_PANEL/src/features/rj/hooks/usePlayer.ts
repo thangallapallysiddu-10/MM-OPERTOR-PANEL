@@ -68,7 +68,7 @@ export const usePlayer = ({
 
   // ─── Active player ─────────────────────────────────────────────────────────
   const activePlayer    = rjStudio.activePlayer;
-  const setActivePlayer = (player: DeckId) =>
+  const setActivePlayer = (player: DeckId | null) =>
     updateRjStudioState({ activePlayer: player });
 
   // ─── Now Playing display ───────────────────────────────────────────────────
@@ -84,6 +84,18 @@ export const usePlayer = ({
       setLocalCurrentTrack(EMPTY_TRACK);
     }
   }, [activePlayer, playerA, playerB]);
+
+  // ─── Enforce activePlayer constraints ────────────────────────────────────────
+  // If the active deck is cleared, or both decks are empty, reset activePlayer.
+  useEffect(() => {
+    if (!playerA && !playerB && activePlayer !== null) {
+      setActivePlayer(null);
+    } else if (activePlayer === 'A' && !playerA) {
+      setActivePlayer(null);
+    } else if (activePlayer === 'B' && !playerB) {
+      setActivePlayer(null);
+    }
+  }, [playerA, playerB, activePlayer]);
 
   // ─── Sync store playback state → engine ───────────────────────────────────
   // (Needed when socket updates change isPlayingA/B without going through local actions)
@@ -108,7 +120,7 @@ export const usePlayer = ({
       await audio.unloadDeck(deckId).catch(() => {});
       return;
     }
-    const url = track.filePath || track.audioUrl || (track as any).fileUrl;
+    const url = track.audioUrl || (track as any).fileUrl || track.filePath;
     if (!url) {
       console.warn('[usePlayer] loadDeck: no audioUrl on track', track.title);
       return;
@@ -198,23 +210,25 @@ export const usePlayer = ({
   };
 
   const togglePlayActive = () => {
+    if (!activePlayer) return;
     const isPlaying = activePlayer === 'A' ? isPlayingA : isPlayingB;
-    if (isPlaying) {
-      pauseActiveTrack();
-    } else {
+
+    if (!isPlaying) {
       playStandbyTrack(activePlayer);
-      void syncDualPlayer('toggle_play');
+    } else {
+      pauseActiveTrack();
     }
   };
 
   const stopActiveTrack = () => {
-    const trackName =
+    if (!activePlayer) return;
+    const title =
       activePlayer === 'A' ? playerA?.title : playerB?.title;
     audio.stop(activePlayer).catch(() => {});
     updateRjStudioState(
       activePlayer === 'A' ? { isPlayingA: false } : { isPlayingB: false }
     );
-    addNotification('system', `⏹️ Stopped: ${trackName || 'Current song'}`);
+    if (title) addNotification('system', `⏹️ Stopped: ${title}`);
     void syncDualPlayer('stop_active');
   };
 
@@ -248,9 +262,11 @@ export const usePlayer = ({
     audio.stop(playerId).catch(() => {});
     if (playerId === 'A') {
       setPlayerA(null);
+      updateRjStudioState({ isPlayingA: false });
       addNotification('system', '🗑️ Cleared Player A');
     } else {
       setPlayerB(null);
+      updateRjStudioState({ isPlayingB: false });
       addNotification('system', '🗑️ Cleared Player B');
     }
     void syncDualPlayer('clear_deck', { playerId });
@@ -345,7 +361,7 @@ export const usePlayer = ({
     animateCrossfade: (targetValue: number) =>
       animateCrossfadeToPlayer(
         targetValue,
-        activePlayer === 'A' ? 'B' : 'A',
+        targetValue < 50 ? 'A' : 'B',
       ),
   };
 };

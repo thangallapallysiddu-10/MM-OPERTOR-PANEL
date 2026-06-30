@@ -230,16 +230,27 @@ export function PodcastActionButtons({
   handleMarkSegment, 
   handleAddChapter,
   segments,
-  chapters
+  chapters,
+  recordingSeconds = 0
 }: any) {
   return (
     <div className="bg-[#131720] rounded-xl p-4 font-sans select-none mb-4 border border-[#1f2937] flex flex-col gap-3.5">
-      <p className="text-[11px] text-gray-500 font-medium tracking-widest uppercase mb-0">
-        Recording Actions
-      </p>
+      <div className="flex flex-row justify-between items-center w-full mb-1">
+        <p className="text-[11px] text-gray-500 font-medium tracking-widest uppercase mb-0">
+          Recording Actions
+        </p>
+        <div 
+          className="flex items-center gap-2 bg-[#171a23] border border-[#273344] px-4 py-1.5 rounded-lg font-mono text-[22px] font-bold text-red-500 select-none"
+          style={{ minWidth: "120px", justifyContent: "center" }}
+        >
+          <span className={`w-3 h-3 rounded-full bg-red-500 ${status === "recording" ? "animate-pulse" : ""}`} />
+          {fmt(recordingSeconds)}
+        </div>
+      </div>
       
       {/* Action Buttons Row */}
-      <div className="flex flex-row items-center gap-4 w-full">
+      <div className="flex flex-row items-center gap-3 w-full">
+
         {/* Dynamic Start / Pause / Resume / Save */}
         {status === "stopped" ? (
           <button
