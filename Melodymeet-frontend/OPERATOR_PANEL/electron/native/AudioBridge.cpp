@@ -4,6 +4,9 @@
 #include <engine/RJSession.h>
 #include <engine/PodcastSession.h>
 #include <core/Version.h>
+#include <utilities/RtLogger.h>
+#include <algorithm>
+#include <filesystem>
 #include <iostream>
 
 AudioBridge::AudioBridge()
@@ -58,6 +61,50 @@ bool AudioBridge::isInitialized() const
     return initialized_;
 }
 
+namespace
+{
+melodymeet::SessionManager::SessionType parseSessionType(const std::string& sessionType)
+{
+    if (sessionType == "RJ" || sessionType == "rj") {
+        return melodymeet::SessionManager::SessionType::RJ;
+    }
+    if (sessionType == "Podcast" || sessionType == "podcast") {
+        return melodymeet::SessionManager::SessionType::Podcast;
+    }
+    throw std::runtime_error("Unknown session type: " + sessionType);
+}
+}
+
+void AudioBridge::setActiveSession(const std::string& sessionType)
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!initialized_ || !engine_) throw std::runtime_error("Engine not initialized");
+    engine_->setActiveSession(parseSessionType(sessionType));
+}
+
+void AudioBridge::setOutputSession(const std::string& sessionType)
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!initialized_ || !engine_) throw std::runtime_error("Engine not initialized");
+
+    const auto type = parseSessionType(sessionType);
+
+    // Guard: only allow switching to a session that is fully prepared and
+    // in the Running state. Switching to an unprepared session would cause
+    // the audio callback to process a zero-buffer-size block, producing
+    // silence or corrupted output until the next engine restart.
+    auto* target = engine_->getSessionManager().getSession(type);
+    if (!target) throw std::runtime_error("setOutputSession: session not found");
+
+    using EngineState = melodymeet::SessionState::EngineState;
+    if (target->getState().getEngineState() != EngineState::Running) {
+        throw std::runtime_error(
+            "setOutputSession: target session '" + sessionType + "' is not Running");
+    }
+
+    engine_->setOutputSession(type);
+}
+
 AudioBridge::EngineInfo AudioBridge::getEngineInfo() const
 {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -79,15 +126,20 @@ AudioBridge::EngineInfo AudioBridge::getEngineInfo() const
 
 AudioBridge::EngineHealthSnapshot AudioBridge::getEngineHealthSnapshot() const
 {
+    // Drain the RT logger ring buffer here — this method is called every 50 ms
+    // by AudioService._pollEngine(), making it the ideal non-RT drain point.
+    // Zero cost when the ring is empty (just kRingSize atomic loads).
+    melodymeet::RtLogger::get().drain();
+
     std::lock_guard<std::mutex> lock(mutex_);
     EngineHealthSnapshot snap{};
     if (initialized_ && engine_)
     {
         auto stats = engine_->getStatistics().getSnapshot();
-        snap.cpuLoad = stats.callbackLoadPercentage;
-        snap.xruns = stats.xruns;
-        snap.sampleRate = stats.sampleRate;
-        snap.bufferSize = stats.bufferSize;
+        snap.cpuLoad     = stats.callbackLoadPercentage;
+        snap.xruns       = stats.xruns;
+        snap.sampleRate  = stats.sampleRate;
+        snap.bufferSize  = stats.bufferSize;
         snap.callbackTime = stats.averageCallbackDurationMs;
     }
     return snap;
@@ -120,16 +172,18 @@ AudioBridge::PlaybackSnapshot AudioBridge::getSnapshot() const
 
     auto fillDeck = [](std::shared_ptr<melodymeet::DeckPlayer> deck, DeckSnapshot& out) {
         if (deck) {
-            out.state = static_cast<int>(deck->getState());
-            out.position = deck->getCurrentPosition();
-            out.duration = deck->getDuration();
-            out.isLoaded = deck->isLoaded();
+            out.state      = static_cast<int>(deck->getState());
+            out.position   = deck->getCurrentPosition();
+            out.duration   = deck->getDuration();
+            out.isLoaded   = deck->isLoaded();
+            out.isLoading  = deck->isLoading();
             out.loadFailed = deck->hasLoadFailed();
         } else {
-            out.state = 0;
-            out.position = 0.0;
-            out.duration = 0.0;
-            out.isLoaded = false;
+            out.state      = 0;
+            out.position   = 0.0;
+            out.duration   = 0.0;
+            out.isLoaded   = false;
+            out.isLoading  = false;
             out.loadFailed = false;
         }
     };
@@ -150,6 +204,10 @@ AudioBridge::PlaybackSnapshot AudioBridge::getSnapshot() const
 bool AudioBridge::loadDeck(const std::string& deckId, const std::string& path)
 {
     std::lock_guard<std::mutex> lock(mutex_);
+    std::error_code existsError;
+    const bool exists = std::filesystem::exists(path, existsError) && std::filesystem::is_regular_file(path, existsError);
+    std::cout << "[LOAD TRACK PATH] " << path << std::endl;
+    std::cout << "[FILE EXISTS] " << exists << std::endl;
     if (!initialized_ || !engine_) throw std::runtime_error("Engine not initialized");
     if (auto* rj = dynamic_cast<melodymeet::RJSession*>(engine_->getSessionManager().getActiveSession())) {
         if (deckId == "A" && rj->getPlaybackManager().getDeckA()) return rj->getPlaybackManager().getDeckA()->load(path);
@@ -161,10 +219,19 @@ bool AudioBridge::loadDeck(const std::string& deckId, const std::string& path)
 bool AudioBridge::play(const std::string& deckId)
 {
     std::lock_guard<std::mutex> lock(mutex_);
+    std::cout << "[AUDIOBRIDGE PLAY] deck=" << deckId << std::endl;
     if (!initialized_ || !engine_) throw std::runtime_error("Engine not initialized");
     if (auto* rj = dynamic_cast<melodymeet::RJSession*>(engine_->getSessionManager().getActiveSession())) {
-        if (deckId == "A" && rj->getPlaybackManager().getDeckA()) return rj->getPlaybackManager().getDeckA()->play();
-        if (deckId == "B" && rj->getPlaybackManager().getDeckB()) return rj->getPlaybackManager().getDeckB()->play();
+        if (deckId == "A" && rj->getPlaybackManager().getDeckA()) {
+            const bool result = rj->getPlaybackManager().getDeckA()->play();
+            std::cout << "[AUDIOBRIDGE PLAY RESULT] deck=" << deckId << " result=" << result << std::endl;
+            return result;
+        }
+        if (deckId == "B" && rj->getPlaybackManager().getDeckB()) {
+            const bool result = rj->getPlaybackManager().getDeckB()->play();
+            std::cout << "[AUDIOBRIDGE PLAY RESULT] deck=" << deckId << " result=" << result << std::endl;
+            return result;
+        }
     }
     throw std::runtime_error("Deck not found or session not RJ");
 }
@@ -306,30 +373,50 @@ std::vector<std::string> AudioBridge::getAvailableInputDevices() const
 
 bool AudioBridge::enableMicrophone(const std::string& deviceName)
 {
+    return enableMicrophone(0, deviceName);
+}
+
+bool AudioBridge::enableMicrophone(int micIndex, const std::string& deviceName)
+{
     std::lock_guard<std::mutex> lock(mutex_);
     if (!initialized_ || !engine_) throw std::runtime_error("Engine not initialized");
-    return engine_->enableMicrophone(deviceName);
+    return engine_->enableMicrophone(micIndex, deviceName);
 }
 
 void AudioBridge::disableMicrophone()
 {
+    disableMicrophone(0);
+}
+
+void AudioBridge::disableMicrophone(int micIndex)
+{
     std::lock_guard<std::mutex> lock(mutex_);
     if (!initialized_ || !engine_) throw std::runtime_error("Engine not initialized");
-    engine_->disableMicrophone();
+    engine_->disableMicrophone(micIndex);
 }
 
 void AudioBridge::setMicrophoneGain(float gain)
 {
+    setMicrophoneGain(0, gain);
+}
+
+void AudioBridge::setMicrophoneGain(int micIndex, float gain)
+{
     std::lock_guard<std::mutex> lock(mutex_);
     if (!initialized_ || !engine_) throw std::runtime_error("Engine not initialized");
-    engine_->setMicrophoneGain(gain);
+    engine_->setMicrophoneGain(micIndex, gain);
 }
 
 void AudioBridge::muteMicrophone(bool muted)
 {
+    muteMicrophone(0, muted);
+}
+
+void AudioBridge::muteMicrophone(int micIndex, bool muted)
+{
     std::lock_guard<std::mutex> lock(mutex_);
     if (!initialized_ || !engine_) throw std::runtime_error("Engine not initialized");
-    engine_->muteMicrophone(muted);
+    engine_->muteMicrophone(micIndex, muted);
 }
 
 AudioBridge::MicrophoneSnapshot AudioBridge::getMicrophoneSnapshot() const
@@ -461,6 +548,13 @@ void AudioBridge::setCompressor(const CompressorSettings& settings)
     engine_->setCompressor({settings.enabled, settings.threshold, settings.ratio, settings.attack, settings.release, settings.makeup});
 }
 
+void AudioBridge::setMicrophoneCompressor(int micIndex, const CompressorSettings& settings)
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!initialized_ || !engine_) throw std::runtime_error("Engine not initialized");
+    engine_->setMicrophoneCompressor(micIndex, {settings.enabled, settings.threshold, settings.ratio, settings.attack, settings.release, settings.makeup});
+}
+
 AudioBridge::CompressorSettings AudioBridge::getCompressor() const
 {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -474,6 +568,13 @@ void AudioBridge::setLimiter(const LimiterSettings& settings)
     std::lock_guard<std::mutex> lock(mutex_);
     if (!initialized_ || !engine_) return;
     engine_->setLimiter({settings.enabled, settings.threshold, settings.release});
+}
+
+void AudioBridge::setMicrophoneLimiter(int micIndex, const LimiterSettings& settings)
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!initialized_ || !engine_) throw std::runtime_error("Engine not initialized");
+    engine_->setMicrophoneLimiter(micIndex, {settings.enabled, settings.threshold, settings.release});
 }
 
 AudioBridge::LimiterSettings AudioBridge::getLimiter() const
@@ -520,10 +621,37 @@ AudioBridge::MeterSnapshot AudioBridge::getMeterSnapshot() const
             snap.masterPeakL = peakMeter.getPeak(0);
             snap.masterPeakR = peakMeter.getPeak(1);
 
+            if (auto* rj = dynamic_cast<melodymeet::RJSession*>(session)) {
+                if (auto deckA = rj->getPlaybackManager().getDeckA()) {
+                    const auto& peak = deckA->getMeterEngine().getPeakMeter();
+                    snap.deckAPeakL = peak.getPeak(0);
+                    snap.deckAPeakR = peak.getPeak(1);
+                }
+                if (auto deckB = rj->getPlaybackManager().getDeckB()) {
+                    const auto& peak = deckB->getMeterEngine().getPeakMeter();
+                    snap.deckBPeakL = peak.getPeak(0);
+                    snap.deckBPeakR = peak.getPeak(1);
+                }
+            }
+
             if (auto mic = session->getMicrophoneManager().getPrimaryMicrophone()) {
                 const auto& micPeakMeter = mic->getMeterEngine().getPeakMeter();
+                const auto& micRmsMeter = mic->getMeterEngine().getRMSMeter();
                 snap.micPeakL = micPeakMeter.getPeak(0);
                 snap.micPeakR = micPeakMeter.getPeak(1);
+                snap.micRmsL = micRmsMeter.getRMS(0);
+                snap.micRmsR = micRmsMeter.getRMS(1);
+            }
+
+            const auto& mics = session->getMicrophoneManager().getMicrophones();
+            const auto micCount = std::min<std::size_t>(mics.size(), snap.rjMicPeak.size());
+            for (std::size_t i = 0; i < micCount; ++i) {
+                if (mics[i]) {
+                    const auto& peak = mics[i]->getMeterEngine().getPeakMeter();
+                    const auto& rms = mics[i]->getMeterEngine().getRMSMeter();
+                    snap.rjMicPeak[i] = std::max(peak.getPeak(0), peak.getPeak(1));
+                    snap.rjMicRms[i] = std::max(rms.getRMS(0), rms.getRMS(1));
+                }
             }
         }
     }

@@ -26,7 +26,15 @@ std::shared_ptr<MicrophoneSource> MicrophoneManager::getPrimaryMicrophone() cons
     return microphones_[0];
 }
 
-std::vector<std::shared_ptr<MicrophoneSource>> MicrophoneManager::getMicrophones() const
+std::shared_ptr<MicrophoneSource> MicrophoneManager::getMicrophone(std::size_t index) const
+{
+    if (index >= microphones_.size()) {
+        return nullptr;
+    }
+    return microphones_[index];
+}
+
+const std::vector<std::shared_ptr<MicrophoneSource>>& MicrophoneManager::getMicrophones() const
 {
     return microphones_;
 }

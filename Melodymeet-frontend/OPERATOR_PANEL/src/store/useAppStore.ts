@@ -165,9 +165,11 @@ interface RjMicUser {
   id: string;
   name: string;
   avatar: string;
+  label?: string;
   isActive: boolean;
   isMuted: boolean;
   volume: number;
+  input?: string;
   isGuest?: boolean;
   guestId?: string;
 }
@@ -313,6 +315,7 @@ interface RjStudioState {
   speakRequests: Array<{
     id: string;
     userName: string;
+    slotId?: string;
     timestamp: string;
     status: 'pending' | 'accepted' | 'rejected';
   }>;

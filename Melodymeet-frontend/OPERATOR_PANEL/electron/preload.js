@@ -1,5 +1,9 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
+console.log('[preload TRACE] Electron preload loaded; exposing window.audio');
+console.log('[PRELOAD] contextBridge available:', typeof contextBridge);
+console.log('[PRELOAD] ipcRenderer available:', typeof ipcRenderer);
+
 contextBridge.exposeInMainWorld('desktop', {
   ping: () => ipcRenderer.invoke('ping'),
 });
@@ -24,6 +28,8 @@ contextBridge.exposeInMainWorld('audio', {
   getEngineInfo: () => ipcRenderer.invoke('audio:getEngineInfo'),
   getEngineHealthSnapshot: () => ipcRenderer.invoke('audio:getEngineHealthSnapshot'),
   getVersions:  () => ipcRenderer.invoke('audio:getVersions'),
+  setActiveSession: (sessionType) => ipcRenderer.invoke('audio:setActiveSession', sessionType),
+  setOutputSession: (sessionType) => ipcRenderer.invoke('audio:setOutputSession', sessionType),
   getPlaybackSnapshot: () => ipcRenderer.invoke('audio:getPlaybackSnapshot'),
   getMixerSnapshot: () => ipcRenderer.invoke('audio:getMixerSnapshot'),
   getMicrophoneSnapshot: () => ipcRenderer.invoke('audio:getMicrophoneSnapshot'),
@@ -59,9 +65,22 @@ contextBridge.exposeInMainWorld('audio', {
   // Microphone APIs
   getAvailableInputDevices: () => ipcRenderer.invoke('audio:getAvailableInputDevices'),
   enableMicrophone:         (deviceName) => ipcRenderer.invoke('audio:enableMicrophone', deviceName),
+  enableMicrophoneByIndex:  (micIndex, deviceName) => {
+    console.log('[PRELOAD IPC] enableMicrophoneByIndex', { micIndex, deviceName });
+    return ipcRenderer.invoke('audio:enableMicrophoneByIndex', micIndex, deviceName);
+  },
   disableMicrophone:        () => ipcRenderer.invoke('audio:disableMicrophone'),
+  disableMicrophoneByIndex: (micIndex) => {
+    console.log('[PRELOAD IPC] disableMicrophoneByIndex', { micIndex });
+    return ipcRenderer.invoke('audio:disableMicrophoneByIndex', micIndex);
+  },
   setMicrophoneGain:        (gain) => ipcRenderer.invoke('audio:setMicrophoneGain', gain),
+  setMicrophoneGainByIndex: (micIndex, gain) => ipcRenderer.invoke('audio:setMicrophoneGainByIndex', micIndex, gain),
   muteMicrophone:           (muted) => ipcRenderer.invoke('audio:muteMicrophone', muted),
+  muteMicrophoneByIndex:    (micIndex, muted) => {
+    console.log('[PRELOAD IPC] muteMicrophoneByIndex', { micIndex, muted });
+    return ipcRenderer.invoke('audio:muteMicrophoneByIndex', micIndex, muted);
+  },
 
   // Recording APIs
   startRecording:           () => ipcRenderer.invoke('audio:startRecording'),
@@ -80,6 +99,8 @@ contextBridge.exposeInMainWorld('audio', {
   getCompressor:            () => ipcRenderer.invoke('audio:getCompressor'),
   setLimiter:               (settings) => ipcRenderer.invoke('audio:setLimiter', settings),
   getLimiter:               () => ipcRenderer.invoke('audio:getLimiter'),
+  setMicrophoneCompressor:  (micIndex, settings) => ipcRenderer.invoke('audio:setMicrophoneCompressor', micIndex, settings),
+  setMicrophoneLimiter:     (micIndex, settings) => ipcRenderer.invoke('audio:setMicrophoneLimiter', micIndex, settings),
   resetDSP:                 () => ipcRenderer.invoke('audio:resetDSP'),
 
   // Event Subscription — multiplexed through a single IPC listener

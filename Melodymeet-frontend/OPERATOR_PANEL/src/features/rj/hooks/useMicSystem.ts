@@ -15,6 +15,12 @@ export const useMicSystem = (addNotification: (type: "request" | "system" | "ale
   const showAddMicModal = rjStudio.showAddMicModal;
   const setShowAddMicModal = (value: boolean) => updateRjStudioState({ showAddMicModal: value });
 
+  const getNativeMicIndex = (micId: string) => {
+    const match = micId.match(/^mic(\d+)$/);
+    if (!match) return 0;
+    return Math.max(0, Math.min(4, Number(match[1]) - 1));
+  };
+
   const setMics = (fn: ((prev: typeof allMics) => typeof allMics) | typeof allMics) => {
     if (typeof fn === 'function') {
       updateRjStudioState({ rjMics: fn(rjStudio.rjMics) });
@@ -48,7 +54,10 @@ export const useMicSystem = (addNotification: (type: "request" | "system" | "ale
     // If the mic is currently active, switch its input device via SDK
     const mic = rjStudio.rjMics.find(m => m.id === micId);
     if (mic?.isActive) {
-      await audio.enableMicrophone(deviceName).catch(() => {});
+      console.log('[MIC DEVICE SWITCH]', { micId, deviceName, nativeIdx: getNativeMicIndex(micId) });
+      await audio.enableMicrophoneByIndex(getNativeMicIndex(micId), deviceName).catch((err) => {
+        console.error('[MIC DEVICE SWITCH ERROR]', err);
+      });
     }
   };
 
@@ -73,7 +82,7 @@ export const useMicSystem = (addNotification: (type: "request" | "system" | "ale
             }
           }
         })
-        .catch(() => {});
+        .catch((err) => { console.error('[MIC DEVICES ERROR]', err); });
     };
 
     // Initial check
@@ -158,13 +167,26 @@ export const useMicSystem = (addNotification: (type: "request" | "system" | "ale
   const toggleMicActive = async (micId: string) => {
     const mic = allMics.find(m => m.id === micId);
     const nextActive = mic ? !mic.isActive : true;
+    const nativeIdx = getNativeMicIndex(micId);
+    const inputDev = mic ? (mic as any).input || '' : '';
 
-    // Route through SDK — Desktop → window.audio IPC, Web → POST /audio/microphone/enable
-    if (nextActive) {
-      const inputDev = mic ? (mic as any).input : '';
-      await audio.enableMicrophone(inputDev || '').catch(() => {});
-    } else {
-      await audio.disableMicrophone().catch(() => {});
+    console.log('[MIC STEP 1] toggleMicActive called', { micId, nextActive });
+    console.log('[MIC STEP 2] mic object:', mic);
+    console.log('[MIC STEP 3] inputDevice:', inputDev);
+    console.log('[MIC STEP 4] nativeIndex:', nativeIdx);
+
+    try {
+      if (nextActive) {
+        console.log('[MIC STEP 5] Calling audio.enableMicrophoneByIndex', nativeIdx, inputDev);
+        const result = await audio.enableMicrophoneByIndex(nativeIdx, inputDev);
+        console.log('[MIC STEP 6] enableMicrophoneByIndex returned:', result);
+      } else {
+        console.log('[MIC STEP 5] Calling audio.disableMicrophoneByIndex', nativeIdx);
+        const result = await audio.disableMicrophoneByIndex(nativeIdx);
+        console.log('[MIC STEP 6] disableMicrophoneByIndex returned:', result);
+      }
+    } catch (err) {
+      console.error('[MIC FAILED] Audio SDK call threw:', err);
     }
 
     const sid = rjBackend.getStudioId();
@@ -206,7 +228,10 @@ export const useMicSystem = (addNotification: (type: "request" | "system" | "ale
     const nextMuted = mic ? !mic.isMuted : true;
 
     // Route through SDK
-    await audio.muteMicrophone(nextMuted).catch(() => {});
+    console.log('[MIC MUTE]', { micId, nextMuted, nativeIdx: getNativeMicIndex(micId) });
+    await audio.muteMicrophoneByIndex(getNativeMicIndex(micId), nextMuted).catch((err) => {
+      console.error('[MIC MUTE ERROR]', err);
+    });
 
     const sid = rjBackend.getStudioId();
     if (rjBackend.isEnabled() && sid) {

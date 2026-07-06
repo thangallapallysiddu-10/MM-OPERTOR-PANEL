@@ -25,6 +25,7 @@ import type {
   RecordingSnapshot,
   BroadcastSnapshot,
   EngineInfo,
+  AudioSessionType,
   AudioEventHandler,
 } from '../types';
 
@@ -81,34 +82,6 @@ export class WebAdapter implements IAudioAdapter {
   // Track last polled data to emit only on change
   private readonly lastData = new Map<string, string>();
 
-  // Browser-native HTML5 Audio elements fallback
-  private readonly audioElements = new Map<DeckId, HTMLAudioElement>();
-  private masterGain: number = 1.0;
-  private deckGains = new Map<DeckId, number>([['A', 1.0], ['B', 1.0]]);
-  private deckMutes = new Map<DeckId, boolean>([['A', false], ['B', false]]);
-  private crossfadeVal: number = 50;
-
-  private updateDeckVolume(deckId: DeckId): void {
-    const audioEl = this.audioElements.get(deckId);
-    if (!audioEl) return;
-
-    if (this.deckMutes.get(deckId)) {
-      audioEl.volume = 0;
-      return;
-    }
-
-    let faderFactor = 1.0;
-    if (deckId === 'A') {
-      faderFactor = this.crossfadeVal <= 50 ? 1.0 : (100 - this.crossfadeVal) / 50;
-    } else {
-      faderFactor = this.crossfadeVal >= 50 ? 1.0 : this.crossfadeVal / 50;
-    }
-
-    const gain = this.deckGains.get(deckId) ?? 1.0;
-    const targetVolume = Math.min(1.0, Math.max(0, faderFactor * gain * this.masterGain));
-    audioEl.volume = targetVolume;
-  }
-
   // ─── Lifecycle ────────────────────────────────────────────────────────────
 
   async initialize(): Promise<void> {
@@ -117,10 +90,6 @@ export class WebAdapter implements IAudioAdapter {
 
   async shutdown(): Promise<void> {
     this.stopAllPollers();
-    for (const audioEl of this.audioElements.values()) {
-      audioEl.pause();
-    }
-    this.audioElements.clear();
     await apiCall('POST', '/audio/shutdown');
   }
 
@@ -136,6 +105,14 @@ export class WebAdapter implements IAudioAdapter {
 
   async getVersions(): Promise<Record<string, number>> {
     return (await apiCall('GET', '/audio/versions')) ?? {};
+  }
+
+  setActiveSession(sessionType: AudioSessionType): Promise<void> {
+    return apiCall('POST', '/audio/session/active', { sessionType });
+  }
+
+  setOutputSession(sessionType: AudioSessionType): Promise<void> {
+    return apiCall('POST', '/audio/session/output', { sessionType });
   }
 
   async getMeterSnapshot(): Promise<Record<string, unknown>> {
@@ -161,78 +138,27 @@ export class WebAdapter implements IAudioAdapter {
   // ─── Deck transport ───────────────────────────────────────────────────────
 
   loadDeck(deckId: DeckId, url: string): Promise<void> {
-    void apiCall('POST', `/audio/decks/${deckId}/load`, { url }).catch(() => {});
-
-    return new Promise((resolve) => {
-      try {
-        let audioEl = this.audioElements.get(deckId);
-        if (audioEl) {
-          audioEl.pause();
-        }
-        audioEl = new Audio(url);
-        audioEl.crossOrigin = 'anonymous';
-        
-        audioEl.addEventListener('canplaythrough', () => resolve(), { once: true });
-        audioEl.addEventListener('error', () => resolve(), { once: true });
-
-        this.audioElements.set(deckId, audioEl);
-        this.updateDeckVolume(deckId);
-
-        // Safety timeout
-        setTimeout(resolve, 1000);
-      } catch (err) {
-        resolve();
-      }
-    });
+    return apiCall('POST', `/audio/decks/${deckId}/load`, { url });
   }
 
   unloadDeck(deckId: DeckId): Promise<void> {
-    void apiCall('POST', `/audio/decks/${deckId}/unload`).catch(() => {});
-    const audioEl = this.audioElements.get(deckId);
-    if (audioEl) {
-      audioEl.pause();
-      this.audioElements.delete(deckId);
-    }
-    return Promise.resolve();
+    return apiCall('POST', `/audio/decks/${deckId}/unload`);
   }
 
   play(deckId: DeckId): Promise<void> {
-    void apiCall('POST', `/audio/decks/${deckId}/play`).catch(() => {});
-    const audioEl = this.audioElements.get(deckId);
-    if (audioEl) {
-      void audioEl.play().catch((err) => {
-        console.warn('[WebAdapter] HTML5 play failed:', err);
-      });
-    }
-    return Promise.resolve();
+    return apiCall('POST', `/audio/decks/${deckId}/play`);
   }
 
   pause(deckId: DeckId): Promise<void> {
-    void apiCall('POST', `/audio/decks/${deckId}/pause`).catch(() => {});
-    const audioEl = this.audioElements.get(deckId);
-    if (audioEl) {
-      audioEl.pause();
-    }
-    return Promise.resolve();
+    return apiCall('POST', `/audio/decks/${deckId}/pause`);
   }
 
   stop(deckId: DeckId): Promise<void> {
-    void apiCall('POST', `/audio/decks/${deckId}/stop`).catch(() => {});
-    const audioEl = this.audioElements.get(deckId);
-    if (audioEl) {
-      audioEl.pause();
-      audioEl.currentTime = 0;
-    }
-    return Promise.resolve();
+    return apiCall('POST', `/audio/decks/${deckId}/stop`);
   }
 
   seek(deckId: DeckId, seconds: number): Promise<void> {
-    void apiCall('POST', `/audio/decks/${deckId}/seek`, { position: seconds }).catch(() => {});
-    const audioEl = this.audioElements.get(deckId);
-    if (audioEl) {
-      audioEl.currentTime = seconds;
-    }
-    return Promise.resolve();
+    return apiCall('POST', `/audio/decks/${deckId}/seek`, { position: seconds });
   }
 
   setCue(_deckId: DeckId, _seconds: number): Promise<void> {
@@ -258,33 +184,19 @@ export class WebAdapter implements IAudioAdapter {
   // ─── Mixer ────────────────────────────────────────────────────────────────
 
   setCrossfade(value: number): Promise<void> {
-    void apiCall('POST', '/audio/mixer/crossfade', { value }).catch(() => {});
-    this.crossfadeVal = value;
-    this.updateDeckVolume('A');
-    this.updateDeckVolume('B');
-    return Promise.resolve();
+    return apiCall('POST', '/audio/mixer/crossfade', { value });
   }
 
   setDeckGain(deckId: DeckId, gain: number): Promise<void> {
-    void apiCall('POST', `/audio/mixer/decks/${deckId}/gain`, { gain }).catch(() => {});
-    this.deckGains.set(deckId, gain);
-    this.updateDeckVolume(deckId);
-    return Promise.resolve();
+    return apiCall('POST', `/audio/mixer/decks/${deckId}/gain`, { gain });
   }
 
   setMasterGain(gain: number): Promise<void> {
-    void apiCall('POST', '/audio/mixer/master-gain', { gain }).catch(() => {});
-    this.masterGain = gain;
-    this.updateDeckVolume('A');
-    this.updateDeckVolume('B');
-    return Promise.resolve();
+    return apiCall('POST', '/audio/mixer/master-gain', { gain });
   }
 
   muteDeck(deckId: DeckId, muted: boolean): Promise<void> {
-    void apiCall('POST', `/audio/mixer/decks/${deckId}/mute`, { muted }).catch(() => {});
-    this.deckMutes.set(deckId, muted);
-    this.updateDeckVolume(deckId);
-    return Promise.resolve();
+    return apiCall('POST', `/audio/mixer/decks/${deckId}/mute`, { muted });
   }
 
   soloDeck(deckId: DeckId, soloed: boolean): Promise<void> {
@@ -293,16 +205,7 @@ export class WebAdapter implements IAudioAdapter {
   }
 
   resetMixer(): Promise<void> {
-    void apiCall('POST', '/audio/mixer/reset').catch(() => {});
-    this.crossfadeVal = 50;
-    this.masterGain = 1.0;
-    this.deckGains.set('A', 1.0);
-    this.deckGains.set('B', 1.0);
-    this.deckMutes.set('A', false);
-    this.deckMutes.set('B', false);
-    this.updateDeckVolume('A');
-    this.updateDeckVolume('B');
-    return Promise.resolve();
+    return apiCall('POST', '/audio/mixer/reset');
   }
 
   // ─── DSP ──────────────────────────────────────────────────────────────────
@@ -331,6 +234,14 @@ export class WebAdapter implements IAudioAdapter {
     return apiCall('GET', '/audio/dsp/limiter');
   }
 
+  setMicrophoneCompressor(micIndex: number, s: CompressorSettings): Promise<void> {
+    return apiCall('POST', `/audio/microphones/${micIndex}/compressor`, s);
+  }
+
+  setMicrophoneLimiter(micIndex: number, s: LimiterSettings): Promise<void> {
+    return apiCall('POST', `/audio/microphones/${micIndex}/limiter`, s);
+  }
+
   resetDSP(): Promise<void> {
     return apiCall('POST', '/audio/dsp/reset');
   }
@@ -345,16 +256,32 @@ export class WebAdapter implements IAudioAdapter {
     return apiCall('POST', '/audio/microphone/enable', { input });
   }
 
+  enableMicrophoneByIndex(micIndex: number, input: string): Promise<void> {
+    return apiCall('POST', `/audio/microphones/${micIndex}/enable`, { input });
+  }
+
   disableMicrophone(): Promise<void> {
     return apiCall('POST', '/audio/microphone/disable');
+  }
+
+  disableMicrophoneByIndex(micIndex: number): Promise<void> {
+    return apiCall('POST', `/audio/microphones/${micIndex}/disable`);
   }
 
   setMicrophoneGain(gain: number): Promise<void> {
     return apiCall('POST', '/audio/microphone/gain', { gain });
   }
 
+  setMicrophoneGainByIndex(micIndex: number, gain: number): Promise<void> {
+    return apiCall('POST', `/audio/microphones/${micIndex}/gain`, { gain });
+  }
+
   muteMicrophone(muted: boolean): Promise<void> {
     return apiCall('POST', '/audio/microphone/mute', { muted });
+  }
+
+  muteMicrophoneByIndex(micIndex: number, muted: boolean): Promise<void> {
+    return apiCall('POST', `/audio/microphones/${micIndex}/mute`, { muted });
   }
 
   // ─── Recording ────────────────────────────────────────────────────────────
@@ -378,21 +305,7 @@ export class WebAdapter implements IAudioAdapter {
     const apiSnap = await apiCall('GET', '/audio/playback').catch(() => null);
     if (apiSnap) return apiSnap;
 
-    const audioA = this.audioElements.get('A');
-    const audioB = this.audioElements.get('B');
-
-    return {
-      deckA: {
-        isLoaded: !!audioA,
-        isPlaying: audioA ? !audioA.paused && !audioA.ended : false,
-        position: audioA ? audioA.currentTime : 0,
-      },
-      deckB: {
-        isLoaded: !!audioB,
-        isPlaying: audioB ? !audioB.paused && !audioB.ended : false,
-        position: audioB ? audioB.currentTime : 0,
-      },
-    };
+    return DEFAULT_PLAYBACK;
   }
 
   async getDSPSnapshot(): Promise<DSPSnapshot> {
@@ -440,25 +353,6 @@ export class WebAdapter implements IAudioAdapter {
     const id = setInterval(async () => {
       try {
         let data = await apiCall('GET', endpoint).catch(() => null);
-
-        if (!data && event === 'meters:update') {
-          const audioA = this.audioElements.get('A');
-          const audioB = this.audioElements.get('B');
-          const isPlayingA = audioA ? !audioA.paused && !audioA.ended : false;
-          const isPlayingB = audioB ? !audioB.paused && !audioB.ended : false;
-
-          if (isPlayingA || isPlayingB) {
-            data = {
-              masterPeakL: 0.35 + Math.random() * 0.45,
-              masterPeakR: 0.35 + Math.random() * 0.45,
-            };
-          } else {
-            data = {
-              masterPeakL: 0.0,
-              masterPeakR: 0.0,
-            };
-          }
-        }
 
         if (!data) return;
         const serialized = JSON.stringify(data);

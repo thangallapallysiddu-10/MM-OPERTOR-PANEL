@@ -9,6 +9,7 @@ import type {
   RecordingSnapshot,
   BroadcastSnapshot,
   EngineInfo,
+  AudioSessionType,
   AudioEventHandler,
 } from '../types';
 
@@ -23,6 +24,10 @@ class DesktopAudioError extends Error {
 
 const normalizeDesktopAudioPath = (value: string): string => {
   if (!value) return value;
+  if (value.startsWith('blob:')) {
+    console.error('[AudioSDK ERROR] DesktopAdapter received a blob URL. Native audio requires a real filesystem path.', value);
+    return value;
+  }
   if (value.startsWith('file://')) {
     try {
       const decoded = decodeURI(value.replace(/^file:\/\//, ''));
@@ -44,6 +49,7 @@ export class DesktopAdapter implements IAudioAdapter {
   private invoke<T>(method: string, ...args: any[]): Promise<T> {
     const fn = this.w[method];
     if (typeof fn !== 'function') {
+      console.error('[DESKTOP ADAPTER] Method not found on window.audio:', method, 'Available:', Object.keys(this.w));
       return Promise.reject(new DesktopAudioError(method));
     }
     return Promise.resolve(fn.call(this.w, ...args));
@@ -54,6 +60,8 @@ export class DesktopAdapter implements IAudioAdapter {
   getEngineInfo(): Promise<EngineInfo> { return this.invoke('getEngineInfo'); }
   getEngineHealthSnapshot(): Promise<Record<string, unknown>> { return this.invoke('getEngineHealthSnapshot'); }
   getVersions(): Promise<Record<string, number>> { return this.invoke('getVersions'); }
+  setActiveSession(sessionType: AudioSessionType): Promise<void> { return this.invoke('setActiveSession', sessionType); }
+  setOutputSession(sessionType: AudioSessionType): Promise<void> { return this.invoke('setOutputSession', sessionType); }
   getMeterSnapshot(): Promise<Record<string, unknown>> { return this.invoke('getMeterSnapshot'); }
   getMixerSnapshot(): Promise<Record<string, unknown>> { return this.invoke('getMixerSnapshot'); }
   getMicrophoneSnapshot(): Promise<Record<string, unknown>> { return this.invoke('getMicrophoneSnapshot'); }
@@ -89,13 +97,34 @@ export class DesktopAdapter implements IAudioAdapter {
   getCompressor(): Promise<CompressorSettings> { return this.invoke('getCompressor'); }
   setLimiter(s: LimiterSettings): Promise<void> { return this.invoke('setLimiter', s); }
   getLimiter(): Promise<LimiterSettings> { return this.invoke('getLimiter'); }
+  setMicrophoneCompressor(micIndex: number, s: CompressorSettings): Promise<void> {
+    return this.invoke('setMicrophoneCompressor', micIndex, s);
+  }
+  setMicrophoneLimiter(micIndex: number, s: LimiterSettings): Promise<void> {
+    return this.invoke('setMicrophoneLimiter', micIndex, s);
+  }
   resetDSP(): Promise<void> { return this.invoke('resetDSP'); }
 
   getAvailableInputDevices(): Promise<string[]> { return this.invoke('getAvailableInputDevices'); }
   enableMicrophone(input: string): Promise<void> { return this.invoke('enableMicrophone', input); }
+  enableMicrophoneByIndex(micIndex: number, input: string): Promise<void> {
+    console.log('[DESKTOP ADAPTER] enableMicrophoneByIndex', { micIndex, input });
+    return this.invoke('enableMicrophoneByIndex', micIndex, input);
+  }
   disableMicrophone(): Promise<void> { return this.invoke('disableMicrophone'); }
+  disableMicrophoneByIndex(micIndex: number): Promise<void> {
+    console.log('[DESKTOP ADAPTER] disableMicrophoneByIndex', { micIndex });
+    return this.invoke('disableMicrophoneByIndex', micIndex);
+  }
   setMicrophoneGain(gain: number): Promise<void> { return this.invoke('setMicrophoneGain', gain); }
+  setMicrophoneGainByIndex(micIndex: number, gain: number): Promise<void> {
+    return this.invoke('setMicrophoneGainByIndex', micIndex, gain);
+  }
   muteMicrophone(muted: boolean): Promise<void> { return this.invoke('muteMicrophone', muted); }
+  muteMicrophoneByIndex(micIndex: number, muted: boolean): Promise<void> {
+    console.log('[DESKTOP ADAPTER] muteMicrophoneByIndex', { micIndex, muted });
+    return this.invoke('muteMicrophoneByIndex', micIndex, muted);
+  }
 
   startRecording(): Promise<void> { return this.invoke('startRecording'); }
   pauseRecording(): Promise<void> { return this.invoke('pauseRecording'); }

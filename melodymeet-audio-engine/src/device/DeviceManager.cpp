@@ -1,5 +1,4 @@
 #include "DeviceManager.h"
-#include <iostream>
 
 namespace melodymeet
 {
@@ -11,20 +10,28 @@ DeviceManager::~DeviceManager()
 
 bool DeviceManager::initialize()
 {
-    if (initialized_) {
+    std::cout << "=== DEVICE INIT PATCH ACTIVE ===" << std::endl;
+
+    if (initialized_)
         return true;
-    }
+
+    // Open the output device only. Input channels are requested on-demand
+    // when the user enables a microphone — requesting them here would open
+    // the input stream immediately and make the later setAudioDeviceSetup()
+    // call restart the device, stalling the audio callback.
+    // FIX: Actually, we MUST initialize with input channels, otherwise the 
+    // audioDeviceManager will open the device stream with 0 inputs. When we later
+    // call setAudioDeviceSetup(..., false), it updates the setup object but DOES NOT
+    // restart the stream, meaning numInputChannels will forever be 0 in the callback.
     const auto error = audioDeviceManager_.initialise(
-        defaultInputChannels,
+        256,                   // numInputChannelsNeeded
         defaultOutputChannels,
         nullptr,
         true);
 
-    if (error.isNotEmpty()) {
+    if (error.isNotEmpty())
         throw std::runtime_error("DeviceManager failed to open audio device: " + error.toStdString());
-    }
 
-    audioDeviceManager_.initialiseWithDefaultDevices(defaultInputChannels, defaultOutputChannels);
     initialized_ = true;
     return true;
 }
@@ -83,18 +90,42 @@ bool DeviceManager::setCurrentInputDevice(const std::string& deviceName)
         return false;
 
     auto setup = audioDeviceManager_.getAudioDeviceSetup();
-    
-    // If we're turning it off
-    if (deviceName.empty()) {
+
+    std::cout << "[SET INPUT DEVICE DM] deviceName=" << deviceName << "\n"
+              << "  old setup.inputDeviceName=" << setup.inputDeviceName.toStdString() << "\n"
+              << "  old setup.useDefaultInputChannels=" << (setup.useDefaultInputChannels ? "true" : "false") << "\n";
+    if (auto* device = audioDeviceManager_.getCurrentAudioDevice()) {
+        std::cout << "  activeInputChannels=" << device->getActiveInputChannels().countNumberOfSetBits() << "\n";
+    }
+
+    bool changed = false;
+
+    if (deviceName.empty())
+    {
+        if (setup.useDefaultInputChannels != false || setup.inputDeviceName.isNotEmpty()) changed = true;
         setup.useDefaultInputChannels = false;
-        setup.inputDeviceName = "";
-    } else {
-        setup.inputDeviceName = deviceName;
+        setup.inputDeviceName         = "";
+    }
+    else
+    {
+        if (setup.inputDeviceName.toStdString() != deviceName || setup.useDefaultInputChannels != true) changed = true;
+        setup.inputDeviceName         = deviceName;
         setup.useDefaultInputChannels = true;
     }
 
-    auto result = audioDeviceManager_.setAudioDeviceSetup(setup, true);
-    return result.isEmpty();
+    // Only restart the hardware device if the configuration actually changed.
+    // This fixes device assignment while preventing unnecessary playback stalls.
+    const auto error = audioDeviceManager_.setAudioDeviceSetup(setup, changed);
+
+    auto newSetup = audioDeviceManager_.getAudioDeviceSetup();
+    std::cout << "[SET INPUT DEVICE DM AFTER] error=" << error.toStdString() << "\n"
+              << "  new setup.inputDeviceName=" << newSetup.inputDeviceName.toStdString() << "\n"
+              << "  new setup.useDefaultInputChannels=" << (newSetup.useDefaultInputChannels ? "true" : "false") << "\n";
+    if (auto* device = audioDeviceManager_.getCurrentAudioDevice()) {
+        std::cout << "  activeInputChannels=" << device->getActiveInputChannels().countNumberOfSetBits() << "\n";
+    }
+
+    return error.isEmpty();
 }
 
 double DeviceManager::getSampleRate() const noexcept

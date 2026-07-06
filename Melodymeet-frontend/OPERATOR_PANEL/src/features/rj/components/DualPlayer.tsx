@@ -584,7 +584,7 @@ export const DualPlayer: React.FC<DualPlayerProps> = ({
           progressBarRef.current.measure((x: number, y: number, width: number, height: number, pageX: number, pageY: number) => {
             const touchX = evt.nativeEvent.pageX;
             const percentage = Math.min(100, Math.max(0, ((touchX - pageX) / width) * 100));
-            const duration = getSongDuration(track);
+            const duration = getSongDuration(track ?? null);
             const targetSeconds = (duration * percentage) / 100;
             audio.seek(playerId, targetSeconds).catch(() => {});
           });

@@ -106,7 +106,9 @@ export function useRjSync(
 
               if (rawA && rawA.fileUrl) {
                 if (playStateA) {
-                  audio.play('A', RjApi.getFileUrl(String(rawA.fileUrl))).catch(() => {});
+                  audio.loadDeck('A', RjApi.getFileUrl(String(rawA.fileUrl)))
+                    .then(() => audio.play('A'))
+                    .catch(() => {});
                 } else {
                   audio.pause('A').catch(() => {});
                 }
@@ -114,7 +116,9 @@ export function useRjSync(
 
               if (rawB && rawB.fileUrl) {
                 if (playStateB) {
-                  audio.play('B', RjApi.getFileUrl(String(rawB.fileUrl))).catch(() => {});
+                  audio.loadDeck('B', RjApi.getFileUrl(String(rawB.fileUrl)))
+                    .then(() => audio.play('B'))
+                    .catch(() => {});
                 } else {
                   audio.pause('B').catch(() => {});
                 }

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { Alert } from 'react-native';
-import { Recording, Mic } from '../types';
+import { Recording } from '../types';
 import { useAppStore } from '../../../store/useAppStore';
 import { PodcastApi } from '../../../services/api/operatorApi';
 import { audio } from '../../../services/audio';
@@ -18,7 +18,6 @@ export const useRecording = () => {
   } = useAppStore();
 
   const recordingTimerRef = useRef<any>(null);
-  const levelIntervalRef = useRef<any>(null);
 
   const isRecording = podcast.isRecording;
   const isRecordingPaused = (podcast as any).isRecordingPaused || false;
@@ -30,24 +29,19 @@ export const useRecording = () => {
   const activeMic = mics.find(m => m.active);
 
   useEffect(() => {
-    if (isRecording || activeMic?.active) {
-      if (!levelIntervalRef.current && isDesktop()) {
-        levelIntervalRef.current = setInterval(() => {
-          const currentMics = podcast.mics;
-          currentMics.forEach((mic: Mic) => {
-            updateMic(mic.id, { level: mic.active ? Math.floor(Math.random() * 100) : 0 });
-          });
-        }, 100);
-      }
-    } else if (levelIntervalRef.current) {
-      clearInterval(levelIntervalRef.current);
-      levelIntervalRef.current = null;
-    }
+    if (!isDesktop()) return;
 
-    return () => {
-      if (levelIntervalRef.current) clearInterval(levelIntervalRef.current);
+    const handleMeters = (data: any) => {
+      const currentActiveMic = useAppStore.getState().podcast.mics.find(m => m.active);
+      if (!currentActiveMic) return;
+
+      const peak = Math.max(Number(data.micPeakL ?? 0), Number(data.micPeakR ?? 0));
+      updateMic(currentActiveMic.id, { level: Math.floor(peak * 100) });
     };
-  }, [isRecording, activeMic?.active]);
+
+    audio.on('meters:update', handleMeters);
+    return () => audio.off('meters:update', handleMeters);
+  }, [updateMic]);
 
   useEffect(() => {
     if (!isRecording || isRecordingPaused) {
@@ -143,15 +137,16 @@ export const useRecording = () => {
   const startRecording = async () => {
     try {
       if (!isDesktop()) {
-        updatePodcastState({
-          isRecording: true,
-          isRecordingPaused: false,
-          recordingSeconds: 0,
-          showAfterRecordingOptions: false,
-        } as any);
+        Alert.alert('Native Audio Required', 'Podcast recording is available only through the desktop native audio engine.');
         return;
       }
 
+      await audio.setActiveSession('Podcast');
+      await audio.setOutputSession('Podcast');
+      await audio.enableMicrophone('');
+      if (activeMic) {
+        await audio.setMicrophoneGain(Math.max(0, activeMic.gain / 100));
+      }
       await audio.startRecording();
       updatePodcastState({
         isRecording: true,
@@ -167,7 +162,7 @@ export const useRecording = () => {
   const pauseRecording = async () => {
     try {
       if (!isDesktop()) {
-        updatePodcastState({ isRecordingPaused: true } as any);
+        Alert.alert('Native Audio Required', 'Podcast recording controls require the desktop native audio engine.');
         return;
       }
       await audio.pauseRecording();
@@ -180,7 +175,7 @@ export const useRecording = () => {
   const resumeRecording = async () => {
     try {
       if (!isDesktop()) {
-        updatePodcastState({ isRecordingPaused: false } as any);
+        Alert.alert('Native Audio Required', 'Podcast recording controls require the desktop native audio engine.');
         return;
       }
       await audio.resumeRecording();
@@ -193,48 +188,14 @@ export const useRecording = () => {
   const stopRecording = async () => {
     try {
       if (!isDesktop()) {
-        const durationSecs = useAppStore.getState().podcast.recordingSeconds || 0;
-        const mins = Math.floor(durationSecs / 60);
-        const secs = durationSecs % 60;
-        const durationStr = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
-        const filename = `recording_web_${Date.now()}.wav`;
-
-        try {
-          const mockBlob = new Blob(['dummy audio content'], { type: 'audio/wav' });
-          const formData = new FormData();
-          formData.append('file', mockBlob as any, filename);
-          formData.append('duration', durationStr);
-          formData.append('durationSeconds', durationSecs.toString());
-
-          const saved = await PodcastApi.uploadRecording(formData);
-          
-          addRecording({
-            id: saved?.id || Date.now(),
-            name: saved?.name || filename,
-            duration: durationStr,
-            size: saved?.size || `${((durationSecs * 320) / 8 / 1024).toFixed(1)} MB`,
-            uri: saved?.fileUrl || 'mock-web-recording',
-          });
-        } catch (err) {
-          console.error('Failed to upload web recording to backend', err);
-          addRecording({
-            id: Date.now(),
-            name: filename,
-            duration: durationStr,
-            size: `${((durationSecs * 320) / 8 / 1024).toFixed(1)} MB`,
-            uri: 'mock-web-recording',
-          });
-        }
-
-        updatePodcastState({
-          isRecording: false,
-          isRecordingPaused: false,
-          showAfterRecordingOptions: true,
-        } as any);
+        Alert.alert('Native Audio Required', 'Podcast recording controls require the desktop native audio engine.');
         return;
       }
 
       await audio.stopRecording();
+      await audio.disableMicrophone();
+      await audio.setActiveSession('RJ');
+      await audio.setOutputSession('RJ');
       updatePodcastState({
         isRecording: false,
         isRecordingPaused: false,

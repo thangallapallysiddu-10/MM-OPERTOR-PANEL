@@ -40,6 +40,9 @@ public:
     SessionManager& getSessionManager();
     const SessionManager& getSessionManager() const;
 
+    void setActiveSession(SessionManager::SessionType type);
+    void setOutputSession(SessionManager::SessionType type);
+
     // --- Deck Transport Control ---
     bool seek(const std::string& deckId, double seconds);
     void setCue(const std::string& deckId, double seconds);
@@ -62,6 +65,10 @@ public:
     void disableMicrophone();
     void setMicrophoneGain(float gain);
     void muteMicrophone(bool muted);
+    bool enableMicrophone(int micIndex, const std::string& deviceName);
+    void disableMicrophone(int micIndex);
+    void setMicrophoneGain(int micIndex, float gain);
+    void muteMicrophone(int micIndex, bool muted);
 
     // --- Recording API ---
     struct RecordingSnapshot {
@@ -149,9 +156,11 @@ public:
 
     void setCompressor(const CompressorSettings& settings);
     CompressorSettings getCompressor() const;
+    void setMicrophoneCompressor(int micIndex, const CompressorSettings& settings);
 
     void setLimiter(const LimiterSettings& settings);
     LimiterSettings getLimiter() const;
+    void setMicrophoneLimiter(int micIndex, const LimiterSettings& settings);
 
     void resetDSP();
     DSPSnapshot getDSPSnapshot() const;

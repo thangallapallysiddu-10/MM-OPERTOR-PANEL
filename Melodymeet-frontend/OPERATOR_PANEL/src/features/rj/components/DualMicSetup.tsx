@@ -375,37 +375,29 @@ function ChannelStrip({ ch, onChange, availableDevices }: { ch: Channel; onChang
 
       {/* ON AIR + INPUT ROW */}
       <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 12 }}>
-        {isMic1 ? (
-          <button
-            onClick={() => upd({ isOnAir: !ch.isOnAir })}
-            style={{
-              backgroundColor: ch.isOnAir ? C.onAirGreen : C.offlineGray,
-              border: "none",
-              padding: "6px 10px",
-              borderRadius: 4,
-              flexShrink: 0,
-              cursor: "pointer",
-              display: "flex",
-              alignItems: "center",
-              gap: 5,
-            }}
-          >
-            <div style={{
-              width: 7, height: 7, borderRadius: 4,
-              backgroundColor: ch.isOnAir ? "#ffffff" : "#9ca3af",
-              boxShadow: ch.isOnAir ? "0 0 5px #ffffff" : "none",
-            }} />
-            <span style={{ fontSize: 10, fontWeight: 800, color: "#fff", fontFamily: "monospace" }}>
-              {ch.isOnAir ? "ON AIR" : "GO LIVE"}
-            </span>
-          </button>
-        ) : (
-          ch.isOnAir
-            ? <div style={{ backgroundColor: C.onAirGreen, padding: "4px 8px", borderRadius: 4, flexShrink: 0 }}>
-                <span style={{ fontSize: 10, fontWeight: 800, color: "#fff", fontFamily: "monospace" }}>ON AIR</span>
-              </div>
-            : <div style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: "#374151", flexShrink: 0 }} />
-        )}
+        <button
+          onClick={() => upd({ isOnAir: !ch.isOnAir })}
+          style={{
+            backgroundColor: ch.isOnAir ? C.onAirGreen : C.offlineGray,
+            border: "none",
+            padding: "6px 10px",
+            borderRadius: 4,
+            flexShrink: 0,
+            cursor: "pointer",
+            display: "flex",
+            alignItems: "center",
+            gap: 5,
+          }}
+        >
+          <div style={{
+            width: 7, height: 7, borderRadius: 4,
+            backgroundColor: ch.isOnAir ? "#ffffff" : "#9ca3af",
+            boxShadow: ch.isOnAir ? "0 0 5px #ffffff" : "none",
+          }} />
+          <span style={{ fontSize: 10, fontWeight: 800, color: "#fff", fontFamily: "monospace" }}>
+            {ch.isOnAir ? "ON AIR" : "GO LIVE"}
+          </span>
+        </button>
         <div style={{ flex: 1, position: "relative" }}>
           <select
             value={ch.input}

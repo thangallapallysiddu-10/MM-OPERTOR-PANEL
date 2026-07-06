@@ -399,30 +399,7 @@ export default function PodcastUpload({ navigation, view = 'studio' }: any) {
 
   const handleSaveRecording = async () => {
     const finalDuration = formatLiveDuration(recordingSeconds);
-    if (recordingSeconds > 0) {
-      try {
-        const mockBlob = new Blob(['dummy audio content'], { type: 'audio/wav' });
-        const formData = new FormData();
-        formData.append('file', mockBlob as any, `recording_${Date.now()}.wav`);
-        formData.append('duration', finalDuration);
-        formData.append('durationSeconds', recordingSeconds.toString());
-        
-        const saved = await PodcastApi.uploadRecording(formData);
-        
-        const finalRecording = {
-          id: saved?.id || Date.now(),
-          name: saved?.name || `Recording_${new Date().toLocaleDateString().replace(/\\//g, '-')}_${formatLiveDuration(recordingSeconds).replace(/:/g, '')}`,
-          duration: finalDuration,
-          size: saved?.size || `${((recordingSeconds * 320) / 8 / 1024).toFixed(1)} MB`,
-          uri: saved?.fileUrl || 'mock-recording-file',
-        };
-        useAppStore.getState().addRecording(finalRecording);
-      } catch (err) {
-        console.error('Failed to save recording to backend', err);
-      }
-    }
-
-    setSaveSuccessMsg(`Successfully Saved! Duration: ${finalDuration}`);
+    setSaveSuccessMsg(`Recording finalized. Duration: ${finalDuration}`);
     setTimeout(() => {
       setSaveSuccessMsg(null);
     }, 4000);

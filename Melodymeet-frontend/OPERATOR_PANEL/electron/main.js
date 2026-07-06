@@ -84,6 +84,14 @@ function registerIpcHandlers() {
     return invokeAudio('getVersions');
   });
 
+  ipcMain.handle('audio:setActiveSession', async (e, sessionType) => {
+    return invokeAudio('setActiveSession', sessionType);
+  });
+
+  ipcMain.handle('audio:setOutputSession', async (e, sessionType) => {
+    return invokeAudio('setOutputSession', sessionType);
+  });
+
   ipcMain.handle('audio:getPlaybackSnapshot', async () => {
     return invokeAudio('getPlaybackSnapshot');
   });
@@ -192,16 +200,56 @@ function registerIpcHandlers() {
     return invokeAudio('enableMicrophone', deviceName);
   });
 
+  ipcMain.handle('audio:enableMicrophoneByIndex', async (e, micIndex, deviceName) => {
+    console.log('[IPC ENABLE MIC]', { micIndex, deviceName });
+    try {
+      const result = invokeAudio('enableMicrophoneByIndex', micIndex, deviceName);
+      console.log('[IPC ENABLE MIC] result:', result);
+      return result;
+    } catch (err) {
+      console.error('[IPC ENABLE MIC] ERROR:', err);
+      throw err;
+    }
+  });
+
   ipcMain.handle('audio:disableMicrophone', async () => {
     return invokeAudio('disableMicrophone');
+  });
+
+  ipcMain.handle('audio:disableMicrophoneByIndex', async (e, micIndex) => {
+    console.log('[IPC DISABLE MIC]', { micIndex });
+    try {
+      const result = invokeAudio('disableMicrophoneByIndex', micIndex);
+      console.log('[IPC DISABLE MIC] result:', result);
+      return result;
+    } catch (err) {
+      console.error('[IPC DISABLE MIC] ERROR:', err);
+      throw err;
+    }
   });
 
   ipcMain.handle('audio:setMicrophoneGain', async (e, gain) => {
     return invokeAudio('setMicrophoneGain', gain);
   });
 
+  ipcMain.handle('audio:setMicrophoneGainByIndex', async (e, micIndex, gain) => {
+    return invokeAudio('setMicrophoneGainByIndex', micIndex, gain);
+  });
+
   ipcMain.handle('audio:muteMicrophone', async (e, muted) => {
     return invokeAudio('muteMicrophone', muted);
+  });
+
+  ipcMain.handle('audio:muteMicrophoneByIndex', async (e, micIndex, muted) => {
+    console.log('[IPC MUTE MIC]', { micIndex, muted });
+    try {
+      const result = invokeAudio('muteMicrophoneByIndex', micIndex, muted);
+      console.log('[IPC MUTE MIC] result:', result);
+      return result;
+    } catch (err) {
+      console.error('[IPC MUTE MIC] ERROR:', err);
+      throw err;
+    }
   });
 
   // Audio Engine: Recording APIs
@@ -249,6 +297,14 @@ function registerIpcHandlers() {
 
   ipcMain.handle('audio:setLimiter', async (e, settings) => {
     return invokeAudio('setLimiter', settings);
+  });
+
+  ipcMain.handle('audio:setMicrophoneCompressor', async (e, micIndex, settings) => {
+    return invokeAudio('setMicrophoneCompressor', micIndex, settings);
+  });
+
+  ipcMain.handle('audio:setMicrophoneLimiter', async (e, micIndex, settings) => {
+    return invokeAudio('setMicrophoneLimiter', micIndex, settings);
   });
 
   ipcMain.handle('audio:getLimiter', async () => {

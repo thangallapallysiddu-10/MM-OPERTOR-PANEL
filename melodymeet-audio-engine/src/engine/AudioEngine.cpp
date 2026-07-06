@@ -44,6 +44,7 @@ bool AudioEngine::initialize()
         deviceManager_.shutdown();
         throw std::runtime_error("AudioClock initialization failed.");
     }
+    audioClock_.start();
 
     bufferPool_.prepare(32, 2, bufferSize);
     sessionManager_.prepare(sampleRate, bufferSize, 2);
@@ -53,7 +54,7 @@ bool AudioEngine::initialize()
     engineStatistics_.setFormat(sampleRate, bufferSize);
     engineStatistics_.startUptimeTimer();
 
-    audioCallback_.initialize(audioClock_, sessionManager_, engineStatistics_);
+    audioCallback_.initialize(audioClock_, sessionManager_, engineStatistics_, bufferPool_);
     
     // Set all sessions to Running for now
     sessionManager_.getSession(SessionManager::SessionType::RJ)->getState().setEngineState(SessionState::EngineState::Running);
@@ -102,6 +103,14 @@ const InputManager& AudioEngine::getInputManager() const { return inputManager_;
 
 SessionManager& AudioEngine::getSessionManager() { return sessionManager_; }
 const SessionManager& AudioEngine::getSessionManager() const { return sessionManager_; }
+
+void AudioEngine::setActiveSession(SessionManager::SessionType type) {
+    sessionManager_.setActiveSession(type);
+}
+
+void AudioEngine::setOutputSession(SessionManager::SessionType type) {
+    sessionManager_.setOutputSession(type);
+}
 
 
 // --- Deck Transport Control ---
@@ -204,31 +213,89 @@ std::vector<std::string> AudioEngine::getAvailableInputDevices() const {
 }
 
 bool AudioEngine::enableMicrophone(const std::string& deviceName) {
+    return enableMicrophone(0, deviceName);
+}
+
+bool AudioEngine::enableMicrophone(int micIndex, const std::string& deviceName)
+{
+    std::cout << "[ENABLE MIC ENGINE] " << micIndex << " device=" << deviceName << std::endl;
+    std::cout << "[ENABLE MIC] index=" << micIndex << std::endl;
+
+    if (!initialized_)
+        return false;
+
+    const std::size_t idx = static_cast<std::size_t>(std::max(0, micIndex));
+    auto* session = sessionManager_.getActiveSession();
+    if (!session)
+        return false;
+
+    // 1. Tell JUCE which input device to use. This updates the setup record
+    //    without restarting the hardware device (treatAsChosenDevice=false).
     inputManager_.setCurrentInputDevice(deviceName);
-    auto mic = sessionManager_.getActiveSession()->getMicrophoneManager().getPrimaryMicrophone();
-    if (mic) {
-        mic->setEnabled(true);
+
+    // 2. Enable the MicrophoneSource so it accepts audio from the FIFO.
+    //    The source was already registered in the Mixer at session construction
+    //    and prepared in initialize() — no re-registration needed.
+    auto mic = session->getMicrophoneManager().getMicrophone(idx);
+    if (!mic)
+    {
+        std::cout << "[MIC ENABLE] failed — no mic at index " << micIndex << "\n";
+        return false;
     }
-    return inputManager_.startCapture();
+    mic->setEnabled(true);
+
+    // 3. Start capture: registers InputManager as an AudioIODeviceCallback,
+    //    which activates the input stream on the live device without a restart.
+    const bool ok = inputManager_.startCapture();
+
+    std::cout << "[MIC ENABLE] micIndex=" << micIndex
+              << " device=" << deviceName
+              << " capturing=" << ok
+              << " sessionState=" << (session->getState().getEngineState() == SessionState::EngineState::Running ? "Running" : "NotRunning")
+              << " mixerSources=" << session->getMixer().getSourceCount()
+              << "\n";
+
+    std::cout << "[ENABLE MIC SUCCESS] " << micIndex << std::endl;
+
+    return ok;
 }
 
 void AudioEngine::disableMicrophone() {
-    inputManager_.stopCapture();
-    auto mic = sessionManager_.getActiveSession()->getMicrophoneManager().getPrimaryMicrophone();
+    disableMicrophone(0);
+}
+
+void AudioEngine::disableMicrophone(int micIndex) {
+    auto mic = sessionManager_.getActiveSession()->getMicrophoneManager().getMicrophone(static_cast<std::size_t>(std::max(0, micIndex)));
     if (mic) {
         mic->setEnabled(false);
+    }
+
+    const auto& mics = sessionManager_.getActiveSession()->getMicrophoneManager().getMicrophones();
+    const bool anyEnabled = std::any_of(mics.begin(), mics.end(), [](const auto& candidate) {
+        return candidate && candidate->isEnabled();
+    });
+    if (!anyEnabled) {
+        inputManager_.stopCapture();
     }
 }
 
 void AudioEngine::setMicrophoneGain(float gain) {
-    auto mic = sessionManager_.getActiveSession()->getMicrophoneManager().getPrimaryMicrophone();
+    setMicrophoneGain(0, gain);
+}
+
+void AudioEngine::setMicrophoneGain(int micIndex, float gain) {
+    auto mic = sessionManager_.getActiveSession()->getMicrophoneManager().getMicrophone(static_cast<std::size_t>(std::max(0, micIndex)));
     if (mic) {
         mic->setGain(gain);
     }
 }
 
 void AudioEngine::muteMicrophone(bool muted) {
-    auto mic = sessionManager_.getActiveSession()->getMicrophoneManager().getPrimaryMicrophone();
+    muteMicrophone(0, muted);
+}
+
+void AudioEngine::muteMicrophone(int micIndex, bool muted) {
+    auto mic = sessionManager_.getActiveSession()->getMicrophoneManager().getMicrophone(static_cast<std::size_t>(std::max(0, micIndex)));
     if (mic) {
         mic->setMuted(muted);
     }
@@ -334,6 +401,46 @@ const HighPassFilter* getHighPassFromChainConst(const ChannelDSPChain& chain) {
     return proc ? dynamic_cast<const HighPassFilter*>(proc.get()) : nullptr;
 }
 
+int parseMicIndex(const std::string& channelId) {
+    if (channelId == "Mic" || channelId == "microphone" || channelId == "Microphone") {
+        return 0;
+    }
+
+    if (channelId.rfind("Mic", 0) == 0 && channelId.size() > 3) {
+        try {
+            const int oneBased = std::stoi(channelId.substr(3));
+            return oneBased > 0 ? oneBased - 1 : -1;
+        } catch (...) {
+            return -1;
+        }
+    }
+
+    if (channelId.rfind("microphone", 0) == 0 && channelId.size() > 10) {
+        try {
+            const int oneBased = std::stoi(channelId.substr(10));
+            return oneBased > 0 ? oneBased - 1 : -1;
+        } catch (...) {
+            return -1;
+        }
+    }
+
+    return -1;
+}
+
+MicrophoneSource* resolveMicrophone(SessionManager& sm, int micIndex) {
+    if (micIndex < 0) {
+        return nullptr;
+    }
+
+    if (auto* session = sm.getActiveSession()) {
+        if (auto mic = session->getMicrophoneManager().getMicrophone(static_cast<std::size_t>(micIndex))) {
+            return mic.get();
+        }
+    }
+
+    return nullptr;
+}
+
 // Helper: Resolve the ChannelDSPChain for a given channelId in the active session.
 ChannelDSPChain* resolveChannelDSP(SessionManager& sm, const std::string& channelId) {
     if (auto* rj = dynamic_cast<RJSession*>(sm.getActiveSession())) {
@@ -341,12 +448,13 @@ ChannelDSPChain* resolveChannelDSP(SessionManager& sm, const std::string& channe
             return &rj->getPlaybackManager().getDeckA()->getChannelDSPChain();
         if (channelId == "B" && rj->getPlaybackManager().getDeckB())
             return &rj->getPlaybackManager().getDeckB()->getChannelDSPChain();
-        if (channelId == "Mic") {
-            if (auto mic = rj->getMicrophoneManager().getPrimaryMicrophone())
+        const int micIndex = parseMicIndex(channelId);
+        if (micIndex >= 0) {
+            if (auto mic = rj->getMicrophoneManager().getMicrophone(static_cast<std::size_t>(micIndex)))
                 return &mic->getChannelDSPChain();
         }
     } else if (auto* pod = dynamic_cast<PodcastSession*>(sm.getActiveSession())) {
-        if (channelId == "Mic") {
+        if (parseMicIndex(channelId) == 0) {
             if (auto mic = pod->getMicrophoneManager().getPrimaryMicrophone())
                 return &mic->getChannelDSPChain();
         }
@@ -408,6 +516,21 @@ void AudioEngine::setCompressor(const CompressorSettings& settings) {
     }
 }
 
+void AudioEngine::setMicrophoneCompressor(int micIndex, const CompressorSettings& settings) {
+    if (auto* mic = resolveMicrophone(sessionManager_, micIndex)) {
+        auto proc = mic->getChannelDSPChain().getProcessor(ChannelDSPChain::Slot::Compressor);
+        if (auto* comp = dynamic_cast<CompressorProcessor*>(proc.get())) {
+            comp->setBypass(!settings.enabled);
+            comp->setThreshold(settings.threshold);
+            comp->setRatio(settings.ratio);
+            comp->setAttack(settings.attack);
+            comp->setRelease(settings.release);
+            comp->setMakeupGain(settings.makeup);
+            dspVersion_++;
+        }
+    }
+}
+
 AudioEngine::CompressorSettings AudioEngine::getCompressor() const {
     CompressorSettings settings;
     if (auto* session = sessionManager_.getActiveSession()) {
@@ -429,6 +552,18 @@ void AudioEngine::setLimiter(const LimiterSettings& settings) {
     if (auto* session = sessionManager_.getActiveSession()) {
         auto proc = session->getOutputStage().getMasterDSPChain()
                         .getProcessor(MasterDSPChain::Slot::Limiter);
+        if (auto* lim = dynamic_cast<LimiterProcessor*>(proc.get())) {
+            lim->setBypass(!settings.enabled);
+            lim->setCeiling(settings.threshold);
+            lim->setRelease(settings.release);
+            dspVersion_++;
+        }
+    }
+}
+
+void AudioEngine::setMicrophoneLimiter(int micIndex, const LimiterSettings& settings) {
+    if (auto* mic = resolveMicrophone(sessionManager_, micIndex)) {
+        auto proc = mic->getChannelDSPChain().getProcessor(ChannelDSPChain::Slot::Limiter);
         if (auto* lim = dynamic_cast<LimiterProcessor*>(proc.get())) {
             lim->setBypass(!settings.enabled);
             lim->setCeiling(settings.threshold);

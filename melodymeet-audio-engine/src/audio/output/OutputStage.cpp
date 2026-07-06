@@ -2,17 +2,53 @@
 #include "../dsp/processors/MasterGainProcessor.h"
 #include "../dsp/processors/CompressorProcessor.h"
 #include "../dsp/processors/LimiterProcessor.h"
+#include "../../utilities/RtLogger.h"
 
 #include <algorithm>
 #include <atomic>
 #include <cmath>
+#include <cstdio>
 #include <cstring>
-#include <iostream>
 
 namespace melodymeet {
 
 namespace
 {
+float peakOf(const float* const* channels, int channelCount, int numSamples) noexcept
+{
+    float peak = 0.0f;
+    if (channels == nullptr)
+        return peak;
+
+    for (int ch = 0; ch < channelCount; ++ch) {
+        const auto* data = channels[ch];
+        if (!data)
+            continue;
+
+        for (int s = 0; s < numSamples; ++s)
+            peak = std::max(peak, std::abs(data[s]));
+    }
+
+    return peak;
+}
+
+float peakOf(float* const* channels, int channelCount, int numSamples) noexcept
+{
+    float peak = 0.0f;
+    if (channels == nullptr)
+        return peak;
+
+    for (int ch = 0; ch < channelCount; ++ch) {
+        const auto* data = channels[ch];
+        if (!data)
+            continue;
+
+        for (int s = 0; s < numSamples; ++s)
+            peak = std::max(peak, std::abs(data[s]));
+    }
+
+    return peak;
+}
 } // namespace
 
 OutputStage::OutputStage() {
@@ -76,6 +112,9 @@ void OutputStage::reset() noexcept {
 }
 
 void OutputStage::process(const float* const* inputChannels, int channelCount, int numSamples) noexcept {
+    static std::atomic<uint64_t> outputTraceCount{0};
+    const auto traceId = outputTraceCount.fetch_add(1, std::memory_order_relaxed) + 1;
+
     if (!prepared_ || inputChannels == nullptr || channelCount <= 0 || numSamples <= 0)
         return;
 
@@ -83,6 +122,8 @@ void OutputStage::process(const float* const* inputChannels, int channelCount, i
     const int samplesToCopy = std::min(numSamples, maxBlockSize_);
     if (samplesToCopy <= 0)
         return;
+
+    const float masterInputPeak = peakOf(inputChannels, channelsToCopy, samplesToCopy);
 
     // Always clear the complete internal block before copying the valid callback
     // span. This prevents stale samples from reaching DSP, meters, or consumers.
@@ -101,8 +142,43 @@ void OutputStage::process(const float* const* inputChannels, int channelCount, i
         }
     }
 
-    // Step 2: Apply master DSP in-place
-    masterChain_.process(processedChannels_.data(), channelsToCopy, samplesToCopy);
+    // Step 2: Sanitize — replace any NaN or Inf with 0 before DSP.
+    // A single NaN produced by an upstream DSP processor (bad filter state,
+    // divide-by-zero in a compressor) will propagate through every subsequent
+    // processor and reach the hardware output as a full-scale click or
+    // sustained loud artefact. This is the last firewall before the DAC.
+    // The loop is branchless for finite values and costs ~1 ns per block on
+    // modern CPUs — well within budget for a broadcast engine.
+    for (int ch = 0; ch < channelsToCopy; ++ch) {
+        float* buf = processedChannels_[static_cast<std::size_t>(ch)];
+        for (int s = 0; s < samplesToCopy; ++s) {
+            if (!std::isfinite(buf[s])) {
+                buf[s] = 0.0f;
+            }
+        }
+    }
+
+    // Step 3: Apply master DSP in-place (MasterGain → Compressor → Limiter).
+    {
+        // Suppress denormals for the entire master chain. Denormal floats in
+        // the compressor's envelope follower or the limiter's lookahead buffer
+        // can cause ~100× CPU spikes. This is a zero-overhead hardware flag on
+        // x86/ARM and is safe to set and restore around a single DSP block.
+        juce::ScopedNoDenormals noDenormals;
+        masterChain_.process(processedChannels_.data(), channelsToCopy, samplesToCopy);
+    }
+
+    if (traceId % 100 == 0) {
+        float outPeak = peakOf(processedChannels_.data(), channelsToCopy, samplesToCopy);
+        char buf[RtLogger::kMaxMsgLen];
+        std::snprintf(buf, sizeof(buf),
+            "[MASTER PEAK] input=%.6f output=%.6f",
+            masterInputPeak,
+            outPeak);
+        RtLogger::get().log(buf);
+        std::cout << "[MASTER PEAK] " << outPeak << std::endl;
+        std::cout << "[MONITOR PEAK] 0.0 (Monitor routing is not implemented in OutputStage/RJSession)" << std::endl;
+    }
 
     // Apply metering
     meterEngine_.process(processedChannelsConst_.data(), channelsToCopy, samplesToCopy);

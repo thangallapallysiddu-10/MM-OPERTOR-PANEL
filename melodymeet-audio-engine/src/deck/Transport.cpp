@@ -1,11 +1,17 @@
 #include "Transport.h"
 
 #include <algorithm>
+#include <iostream>
 
 namespace melodymeet {
 
 bool Transport::play(PlaybackState& state) noexcept {
-    if (durationSeconds_.load(std::memory_order_relaxed) <= 0.0) {
+    const double dur = durationSeconds_.load(std::memory_order_relaxed);
+    if (dur <= 0.0) {
+        // This fires when play() is called before load() completes or when
+        // the decoder failed. It is noexcept so we use cout, not throw.
+        std::cout << "[TRANSPORT] play() blocked: duration=0 — file not loaded or decoder failed"
+                  << std::endl;
         return false;
     }
     if (state.getState() == PlaybackState::State::Playing) {

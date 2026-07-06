@@ -43,8 +43,14 @@ public:
 private:
     std::atomic<float> targetGain_{1.0f};
     std::atomic<bool> bypass_{false};
-    
-    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Multiplicative> smoothedGain_{1.0f};
+
+    // Linear smoothing is used intentionally.
+    // Multiplicative smoothing cannot recover once its internal value reaches
+    // zero (0 × ratio = 0 forever). Linear interpolation handles 0 ↔ 1
+    // transitions correctly and is appropriate here because the dB-to-linear
+    // conversion is applied before this smoother, providing the correct
+    // perceptual curve without requiring a multiplicative type.
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> smoothedGain_{1.0f};
 
     double sampleRate_{0.0};
     int channelCount_{0};

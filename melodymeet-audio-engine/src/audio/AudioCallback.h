@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../core/AudioClock.h"
+#include "../core/BufferPool.h"
 #include "../core/SessionState.h"
 #include "../core/statistics/EngineStatistics.h"
 #include "../engine/SessionManager.h"
@@ -21,7 +22,10 @@ public:
     AudioCallback(AudioCallback&&) = delete;
     AudioCallback& operator=(AudioCallback&&) = delete;
 
-    void initialize(AudioClock& audioClock, SessionManager& sessionManager, EngineStatistics& engineStats) noexcept;
+    void initialize(AudioClock&       audioClock,
+                    SessionManager&   sessionManager,
+                    EngineStatistics& engineStats,
+                    BufferPool&       bufferPool) noexcept;
     void shutdown() noexcept;
 
     void audioDeviceIOCallbackWithContext(
@@ -36,9 +40,18 @@ public:
     void audioDeviceStopped() override;
 
 private:
-    AudioClock* audioClock_{nullptr};
-    SessionManager* sessionManager_{nullptr};
+    AudioClock*       audioClock_{nullptr};
+    SessionManager*   sessionManager_{nullptr};
     EngineStatistics* engineStats_{nullptr};
+    BufferPool*       bufferPool_{nullptr};
+
+    // Cached format from the last audioDeviceAboutToStart() call.
+    // Written only on the control thread (device start), read on the
+    // audio thread — both sides are sequenced by the device start/stop
+    // protocol, so no extra synchronisation is needed.
+    int    numOutputChannels_{2};
+    double sampleRate_{0.0};
+    int    bufferSize_{0};
 };
 
 } // namespace melodymeet

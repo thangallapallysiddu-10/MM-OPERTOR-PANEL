@@ -80,6 +80,32 @@ Napi::Value IsInitialized(const Napi::CallbackInfo& info)
 }
 
 /// getEngineInfo() → Object
+Napi::Value SetActiveSession(const Napi::CallbackInfo& info)
+{
+    Napi::Env env = info.Env();
+    if (info.Length() < 1 || !info[0].IsString())
+        throw Napi::TypeError::New(env, "Expected string sessionType");
+    try {
+        getBridge().setActiveSession(info[0].As<Napi::String>().Utf8Value());
+        return env.Undefined();
+    } catch (const std::exception& e) {
+        throw Napi::Error::New(env, e.what());
+    }
+}
+
+Napi::Value SetOutputSession(const Napi::CallbackInfo& info)
+{
+    Napi::Env env = info.Env();
+    if (info.Length() < 1 || !info[0].IsString())
+        throw Napi::TypeError::New(env, "Expected string sessionType");
+    try {
+        getBridge().setOutputSession(info[0].As<Napi::String>().Utf8Value());
+        return env.Undefined();
+    } catch (const std::exception& e) {
+        throw Napi::Error::New(env, e.what());
+    }
+}
+
 Napi::Value GetEngineInfo(const Napi::CallbackInfo& info)
 {
     Napi::Env env = info.Env();
@@ -170,7 +196,9 @@ Napi::Value PlayDeck(const Napi::CallbackInfo& info)
     std::string deckId = info[0].As<Napi::String>().Utf8Value();
 
     try {
+        std::cout << "[ADDON PLAY CALLED] deck=" << deckId << std::endl;
         bool result = getBridge().play(deckId);
+        std::cout << "[ADDON PLAY RESULT] deck=" << deckId << " result=" << result << std::endl;
         return Napi::Boolean::New(env, result);
     } catch (const std::exception& e) {
         throw Napi::Error::New(env, e.what());
@@ -325,10 +353,11 @@ Napi::Value GetSnapshot(const Napi::CallbackInfo& info)
 
         auto makeDeck = [&](const AudioBridge::DeckSnapshot& ds) {
             Napi::Object d = Napi::Object::New(env);
-            d.Set("state", Napi::Number::New(env, ds.state));
-            d.Set("position", Napi::Number::New(env, ds.position));
-            d.Set("duration", Napi::Number::New(env, ds.duration));
-            d.Set("isLoaded", Napi::Boolean::New(env, ds.isLoaded));
+            d.Set("state",      Napi::Number::New(env, ds.state));
+            d.Set("position",   Napi::Number::New(env, ds.position));
+            d.Set("duration",   Napi::Number::New(env, ds.duration));
+            d.Set("isLoaded",   Napi::Boolean::New(env, ds.isLoaded));
+            d.Set("isLoading",  Napi::Boolean::New(env, ds.isLoading));
             d.Set("loadFailed", Napi::Boolean::New(env, ds.loadFailed));
             return d;
         };
@@ -476,11 +505,58 @@ Napi::Value EnableMicrophone(const Napi::CallbackInfo& info)
     }
 }
 
+Napi::Value EnableMicrophoneByIndex(const Napi::CallbackInfo& info)
+{
+    Napi::Env env = info.Env();
+    if (info.Length() < 1 || !info[0].IsNumber())
+        throw Napi::TypeError::New(env, "Expected number micIndex and optional string deviceName");
+    std::string deviceName = "";
+    if (info.Length() >= 2 && info[1].IsString()) {
+        deviceName = info[1].As<Napi::String>().Utf8Value();
+    }
+    
+    int micIndex = info[0].As<Napi::Number>().Int32Value();
+    std::cout
+        << "\n\n========== ADDON ENABLE MIC ==========\n"
+        << "micIndex=" << micIndex
+        << " device=" << deviceName
+        << "\n=====================================\n";
+    
+    try {
+        bool success = getBridge().enableMicrophone(micIndex, deviceName);
+        std::cout << "[NATIVE ENABLE MIC] success: " << (success ? "true" : "false") << std::endl;
+        return Napi::Boolean::New(env, success);
+    } catch (const std::exception& e) {
+        std::cerr << "[NATIVE ENABLE MIC] exception: " << e.what() << std::endl;
+        throw Napi::Error::New(env, e.what());
+    }
+}
+
 Napi::Value DisableMicrophone(const Napi::CallbackInfo& info)
 {
     Napi::Env env = info.Env();
     try {
         getBridge().disableMicrophone();
+        return env.Undefined();
+    } catch (const std::exception& e) {
+        throw Napi::Error::New(env, e.what());
+    }
+}
+
+Napi::Value DisableMicrophoneByIndex(const Napi::CallbackInfo& info)
+{
+    Napi::Env env = info.Env();
+    if (info.Length() < 1 || !info[0].IsNumber())
+        throw Napi::TypeError::New(env, "Expected number micIndex");
+    
+    int micIndex = info[0].As<Napi::Number>().Int32Value();
+    std::cout
+        << "\n\n========== ADDON DISABLE MIC ==========\n"
+        << "micIndex=" << micIndex
+        << "\n=======================================\n";
+
+    try {
+        getBridge().disableMicrophone(info[0].As<Napi::Number>().Int32Value());
         return env.Undefined();
     } catch (const std::exception& e) {
         throw Napi::Error::New(env, e.what());
@@ -500,6 +576,19 @@ Napi::Value SetMicrophoneGain(const Napi::CallbackInfo& info)
     }
 }
 
+Napi::Value SetMicrophoneGainByIndex(const Napi::CallbackInfo& info)
+{
+    Napi::Env env = info.Env();
+    if (info.Length() < 2 || !info[0].IsNumber() || !info[1].IsNumber())
+        throw Napi::TypeError::New(env, "Expected number micIndex and number gain");
+    try {
+        getBridge().setMicrophoneGain(info[0].As<Napi::Number>().Int32Value(), info[1].As<Napi::Number>().FloatValue());
+        return env.Undefined();
+    } catch (const std::exception& e) {
+        throw Napi::Error::New(env, e.what());
+    }
+}
+
 Napi::Value MuteMicrophone(const Napi::CallbackInfo& info)
 {
     Napi::Env env = info.Env();
@@ -507,6 +596,19 @@ Napi::Value MuteMicrophone(const Napi::CallbackInfo& info)
         throw Napi::TypeError::New(env, "Expected boolean muted");
     try {
         getBridge().muteMicrophone(info[0].As<Napi::Boolean>().Value());
+        return env.Undefined();
+    } catch (const std::exception& e) {
+        throw Napi::Error::New(env, e.what());
+    }
+}
+
+Napi::Value MuteMicrophoneByIndex(const Napi::CallbackInfo& info)
+{
+    Napi::Env env = info.Env();
+    if (info.Length() < 2 || !info[0].IsNumber() || !info[1].IsBoolean())
+        throw Napi::TypeError::New(env, "Expected number micIndex and boolean muted");
+    try {
+        getBridge().muteMicrophone(info[0].As<Napi::Number>().Int32Value(), info[1].As<Napi::Boolean>().Value());
         return env.Undefined();
     } catch (const std::exception& e) {
         throw Napi::Error::New(env, e.what());
@@ -761,6 +863,45 @@ Napi::Value SetLimiter(const Napi::CallbackInfo& info)
     }
 }
 
+Napi::Value SetMicrophoneCompressor(const Napi::CallbackInfo& info)
+{
+    Napi::Env env = info.Env();
+    if (info.Length() < 2 || !info[0].IsNumber() || !info[1].IsObject())
+        throw Napi::TypeError::New(env, "Expected number micIndex and object settings");
+    try {
+        Napi::Object obj = info[1].As<Napi::Object>();
+        AudioBridge::CompressorSettings settings;
+        settings.enabled = obj.Has("enabled") ? obj.Get("enabled").As<Napi::Boolean>().Value() : true;
+        settings.threshold = obj.Has("threshold") ? obj.Get("threshold").As<Napi::Number>().FloatValue() : -18.0f;
+        settings.ratio = obj.Has("ratio") ? obj.Get("ratio").As<Napi::Number>().FloatValue() : 3.0f;
+        settings.attack = obj.Has("attack") ? obj.Get("attack").As<Napi::Number>().FloatValue() : 10.0f;
+        settings.release = obj.Has("release") ? obj.Get("release").As<Napi::Number>().FloatValue() : 120.0f;
+        settings.makeup = obj.Has("makeup") ? obj.Get("makeup").As<Napi::Number>().FloatValue() : 2.0f;
+        getBridge().setMicrophoneCompressor(info[0].As<Napi::Number>().Int32Value(), settings);
+        return env.Undefined();
+    } catch (const std::exception& e) {
+        throw Napi::Error::New(env, e.what());
+    }
+}
+
+Napi::Value SetMicrophoneLimiter(const Napi::CallbackInfo& info)
+{
+    Napi::Env env = info.Env();
+    if (info.Length() < 2 || !info[0].IsNumber() || !info[1].IsObject())
+        throw Napi::TypeError::New(env, "Expected number micIndex and object settings");
+    try {
+        Napi::Object obj = info[1].As<Napi::Object>();
+        AudioBridge::LimiterSettings settings;
+        settings.enabled = obj.Has("enabled") ? obj.Get("enabled").As<Napi::Boolean>().Value() : true;
+        settings.threshold = obj.Has("threshold") ? obj.Get("threshold").As<Napi::Number>().FloatValue() : -1.0f;
+        settings.release = obj.Has("release") ? obj.Get("release").As<Napi::Number>().FloatValue() : 80.0f;
+        getBridge().setMicrophoneLimiter(info[0].As<Napi::Number>().Int32Value(), settings);
+        return env.Undefined();
+    } catch (const std::exception& e) {
+        throw Napi::Error::New(env, e.what());
+    }
+}
+
 Napi::Value GetLimiter(const Napi::CallbackInfo& info)
 {
     Napi::Env env = info.Env();
@@ -855,6 +996,17 @@ Napi::Value GetMeterSnapshot(const Napi::CallbackInfo& info)
         
         obj.Set("micPeakL", Napi::Number::New(env, snap.micPeakL));
         obj.Set("micPeakR", Napi::Number::New(env, snap.micPeakR));
+        obj.Set("micRmsL", Napi::Number::New(env, snap.micRmsL));
+        obj.Set("micRmsR", Napi::Number::New(env, snap.micRmsR));
+
+        Napi::Array rjMicPeak = Napi::Array::New(env, snap.rjMicPeak.size());
+        Napi::Array rjMicRms = Napi::Array::New(env, snap.rjMicRms.size());
+        for (size_t i = 0; i < snap.rjMicPeak.size(); ++i) {
+            rjMicPeak.Set(i, Napi::Number::New(env, snap.rjMicPeak[i]));
+            rjMicRms.Set(i, Napi::Number::New(env, snap.rjMicRms[i]));
+        }
+        obj.Set("rjMicPeak", rjMicPeak);
+        obj.Set("rjMicRms", rjMicRms);
         return obj;
     } catch (const std::exception& e) {
         throw Napi::Error::New(env, e.what());
@@ -869,6 +1021,8 @@ Napi::Object InitModule(Napi::Env env, Napi::Object exports)
     exports.Set("shutdown",       Napi::Function::New(env, Shutdown));
     exports.Set("version",        Napi::Function::New(env, GetVersion));
     exports.Set("isInitialized",  Napi::Function::New(env, IsInitialized));
+    exports.Set("setActiveSession", Napi::Function::New(env, SetActiveSession));
+    exports.Set("setOutputSession", Napi::Function::New(env, SetOutputSession));
     exports.Set("getEngineInfo",   Napi::Function::New(env, GetEngineInfo));
     exports.Set("getEngineHealthSnapshot", Napi::Function::New(env, GetEngineHealthSnapshot));
     exports.Set("getVersions",    Napi::Function::New(env, GetVersions));
@@ -899,9 +1053,13 @@ Napi::Object InitModule(Napi::Env env, Napi::Object exports)
     // Microphone API
     exports.Set("getAvailableInputDevices", Napi::Function::New(env, GetAvailableInputDevices));
     exports.Set("enableMicrophone",         Napi::Function::New(env, EnableMicrophone));
+    exports.Set("enableMicrophoneByIndex",  Napi::Function::New(env, EnableMicrophoneByIndex));
     exports.Set("disableMicrophone",        Napi::Function::New(env, DisableMicrophone));
+    exports.Set("disableMicrophoneByIndex", Napi::Function::New(env, DisableMicrophoneByIndex));
     exports.Set("setMicrophoneGain",        Napi::Function::New(env, SetMicrophoneGain));
+    exports.Set("setMicrophoneGainByIndex", Napi::Function::New(env, SetMicrophoneGainByIndex));
     exports.Set("muteMicrophone",           Napi::Function::New(env, MuteMicrophone));
+    exports.Set("muteMicrophoneByIndex",    Napi::Function::New(env, MuteMicrophoneByIndex));
     exports.Set("getMicrophoneSnapshot",    Napi::Function::New(env, GetMicrophoneSnapshot));
 
     // Recording API
@@ -923,6 +1081,8 @@ Napi::Object InitModule(Napi::Env env, Napi::Object exports)
     exports.Set("getCompressor",      Napi::Function::New(env, GetCompressor));
     exports.Set("setLimiter",         Napi::Function::New(env, SetLimiter));
     exports.Set("getLimiter",         Napi::Function::New(env, GetLimiter));
+    exports.Set("setMicrophoneCompressor", Napi::Function::New(env, SetMicrophoneCompressor));
+    exports.Set("setMicrophoneLimiter",    Napi::Function::New(env, SetMicrophoneLimiter));
     exports.Set("resetDSP",           Napi::Function::New(env, ResetDSP));
     exports.Set("getDSPSnapshot",     Napi::Function::New(env, GetDSPSnapshot));
 

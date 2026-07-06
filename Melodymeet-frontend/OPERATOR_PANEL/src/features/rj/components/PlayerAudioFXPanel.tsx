@@ -68,19 +68,54 @@ const Knob: React.FC<KnobProps> = ({
   );
 
   useEffect(() => {
+    // RAF id for the throttle — one onChange per animation frame (~16 ms / 60 fps).
+    // Without this, a fast drag fires hundreds of IPC round-trips per second,
+    // flooding the Electron IPC queue and causing gain updates to land late or
+    // in the wrong order.
+    let rafId: ReturnType<typeof requestAnimationFrame> | null = null;
+    let pendingValue: number | null = null;
+
+    const flushPending = () => {
+      rafId = null;
+      if (pendingValue !== null) {
+        onChange(pendingValue);
+        pendingValue = null;
+      }
+    };
+
     const move = (e: MouseEvent) => {
       if (!dragging.current) return;
       const delta = (startY.current - e.clientY) * ((max - min) / 150);
       let next = startVal.current + delta;
       next = Math.min(max, Math.max(min, next));
-      onChange(Math.round(next * 10) / 10);
+      pendingValue = Math.round(next * 10) / 10;
+
+      // Schedule a flush only if one isn't already queued.
+      if (rafId === null) {
+        rafId = requestAnimationFrame(flushPending);
+      }
     };
-    const up = () => { dragging.current = false; };
+
+    const up = () => {
+      dragging.current = false;
+      // Cancel the pending frame and flush the final value immediately so
+      // the knob always lands on the exact position where the user released.
+      if (rafId !== null) {
+        cancelAnimationFrame(rafId);
+        rafId = null;
+      }
+      if (pendingValue !== null) {
+        onChange(pendingValue);
+        pendingValue = null;
+      }
+    };
+
     window.addEventListener('mousemove', move);
     window.addEventListener('mouseup',   up);
     return () => {
       window.removeEventListener('mousemove', move);
       window.removeEventListener('mouseup',   up);
+      if (rafId !== null) cancelAnimationFrame(rafId);
     };
   }, [onChange, min, max]);
 

@@ -27,6 +27,11 @@ class AudioService {
             try {
                 addon = require(addonPath);
                 console.log("[AudioService TRACE] Addon required successfully. typeof addon:", typeof addon);
+                console.log("================================");
+                console.log("NATIVE ADDON PATH:", addonPath);
+                console.log("NATIVE EXPORTS:");
+                console.log(Object.keys(addon));
+                console.log("================================");
                 if (!addon) {
                     console.log("[AudioService TRACE] WARNING: addon is falsy after successful require! Value:", addon);
                 }
@@ -49,6 +54,18 @@ class AudioService {
         if (!this.initialized) {
             throw new Error('AudioEngine not initialized');
         }
+    }
+
+    _hasAddonFunction(name) {
+        return addon && typeof addon[name] === 'function';
+    }
+
+    _callAddonIfAvailable(name, ...args) {
+        if (!this._hasAddonFunction(name)) {
+            console.warn(`[AudioService] Native addon does not expose ${name}(); skipping. Rebuild the addon to enable this path.`);
+            return false;
+        }
+        return addon[name](...args);
     }
 
     initialize() {
@@ -157,16 +174,22 @@ class AudioService {
         // State Enum (PlaybackState::State):
         // Stopped = 0, Loading = 1, Playing = 2, Paused = 3, Ended = 4
         if (oldState.state !== newState.state) {
-            if (newState.state === 2) audioEvents.emit('deck:play', { deckId });
-            else if (newState.state === 3) audioEvents.emit('deck:pause', { deckId });
-            else if (newState.state === 0) audioEvents.emit('deck:stop', { deckId });
-            else if (newState.state === 4) audioEvents.emit('deck:ended', { deckId });
+            if (newState.state === 2) audioEvents.emit('deck:play',   { deckId });
+            else if (newState.state === 3) audioEvents.emit('deck:pause',  { deckId });
+            else if (newState.state === 0) audioEvents.emit('deck:stop',   { deckId });
+            else if (newState.state === 4) audioEvents.emit('deck:ended',  { deckId });
         }
 
-        if (!oldState.isLoaded && newState.isLoaded) {
-            audioEvents.emit('deck:loaded', { deckId });
+        // Background decode in progress → notify UI so it can show a spinner.
+        if (!oldState.isLoading && newState.isLoading) {
+            audioEvents.emit('deck:loading', { deckId });
         }
-        
+
+        // Decode complete — file is now available on the audio thread.
+        if (!oldState.isLoaded && newState.isLoaded) {
+            audioEvents.emit('deck:loaded', { deckId, duration: newState.duration });
+        }
+
         if (!oldState.loadFailed && newState.loadFailed) {
             audioEvents.emit('deck:load-failed', { deckId });
         }
@@ -174,7 +197,7 @@ class AudioService {
         if (oldState.position !== newState.position) {
             audioEvents.emit('deck:position', { deckId, position: newState.position, duration: newState.duration });
         }
-        
+
         if (oldState.duration !== newState.duration) {
             audioEvents.emit('deck:duration', { deckId, duration: newState.duration });
         }
@@ -250,6 +273,16 @@ class AudioService {
         return addon.getVersions();
     }
 
+    setActiveSession(sessionType) {
+        this._requireInitialized();
+        return this._callAddonIfAvailable('setActiveSession', sessionType);
+    }
+
+    setOutputSession(sessionType) {
+        this._requireInitialized();
+        return this._callAddonIfAvailable('setOutputSession', sessionType);
+    }
+
     getMeterSnapshot() {
         this._requireInitialized();
         return addon.getMeterSnapshot();
@@ -264,6 +297,8 @@ class AudioService {
 
     async loadDeck(deckId, filePath) {
         if (!this.initialized) throw new Error('AudioEngine not initialized');
+        this._callAddonIfAvailable('setActiveSession', 'RJ');
+        this._callAddonIfAvailable('setOutputSession', 'RJ');
         console.log('[AudioService TRACE] loadDeck()', { deckId, filePath });
         return addon.loadDeck(deckId, filePath);
     }
@@ -275,7 +310,12 @@ class AudioService {
 
     async play(deckId) {
         if (!this.initialized) throw new Error('AudioEngine not initialized');
-        return addon.play(deckId);
+        this._callAddonIfAvailable('setActiveSession', 'RJ');
+        this._callAddonIfAvailable('setOutputSession', 'RJ');
+        console.log("[AUDIOSERVICE PLAY]", deckId);
+        const result = addon.play(deckId);
+        console.log("[AUDIOSERVICE PLAY RESULT]", result);
+        return result;
     }
 
     async pause(deckId) {
@@ -332,7 +372,15 @@ class AudioService {
 
     setMasterGain(gain) {
         if (!this.initialized) throw new Error('AudioEngine not initialized');
-        addon.setMasterGain(gain);
+        // Sanitize at the service boundary — never forward NaN, Infinity, or
+        // out-of-range values to the native engine.
+        const safeGain = (typeof gain === 'number' && Number.isFinite(gain))
+            ? Math.max(1e-6, Math.min(4.0, gain))
+            : 1.0;
+        if (safeGain !== gain) {
+            console.warn('[AudioService] setMasterGain clamped:', gain, '->', safeGain);
+        }
+        return addon.setMasterGain(safeGain);
     }
 
     muteDeck(deckId, muted) {
@@ -367,9 +415,43 @@ class AudioService {
         return addon.enableMicrophone(deviceName);
     }
 
+    enableMicrophoneByIndex(micIndex, deviceName = "") {
+        console.log('[AUDIOSERVICE ENABLE MIC]', { micIndex, deviceName, initialized: this.initialized });
+        if (!this.initialized) throw new Error('AudioEngine not initialized');
+        if (this._hasAddonFunction('enableMicrophoneByIndex')) {
+            console.log('[AUDIOSERVICE] Calling addon.enableMicrophoneByIndex', micIndex, deviceName);
+            const result = addon.enableMicrophoneByIndex(micIndex, deviceName);
+            console.log('[AUDIOSERVICE] addon.enableMicrophoneByIndex returned:', result);
+            return result;
+        }
+        if (Number(micIndex) === 0) {
+            console.log('[AUDIOSERVICE] Falling back to addon.enableMicrophone', deviceName);
+            const result = addon.enableMicrophone(deviceName);
+            console.log('[AUDIOSERVICE] addon.enableMicrophone returned:', result);
+            return result;
+        }
+        console.warn('[AudioService] Indexed microphones require a rebuilt native addon; ignoring enable for mic index:', micIndex);
+        return false;
+    }
+
     disableMicrophone() {
         if (!this.initialized) throw new Error('AudioEngine not initialized');
         return addon.disableMicrophone();
+    }
+
+    disableMicrophoneByIndex(micIndex) {
+        console.log('[AUDIOSERVICE DISABLE MIC]', { micIndex, initialized: this.initialized });
+        if (!this.initialized) throw new Error('AudioEngine not initialized');
+        if (this._hasAddonFunction('disableMicrophoneByIndex')) {
+            console.log('[AUDIOSERVICE] Calling addon.disableMicrophoneByIndex', micIndex);
+            return addon.disableMicrophoneByIndex(micIndex);
+        }
+        if (Number(micIndex) === 0) {
+            console.log('[AUDIOSERVICE] Falling back to addon.disableMicrophone');
+            return addon.disableMicrophone();
+        }
+        console.warn('[AudioService] Indexed microphones require a rebuilt native addon; ignoring disable for mic index:', micIndex);
+        return false;
     }
 
     setMicrophoneGain(gain) {
@@ -377,9 +459,38 @@ class AudioService {
         addon.setMicrophoneGain(gain);
     }
 
+    setMicrophoneGainByIndex(micIndex, gain) {
+        if (!this.initialized) throw new Error('AudioEngine not initialized');
+        if (this._hasAddonFunction('setMicrophoneGainByIndex')) {
+            addon.setMicrophoneGainByIndex(micIndex, gain);
+            return;
+        }
+        if (Number(micIndex) === 0) {
+            addon.setMicrophoneGain(gain);
+            return;
+        }
+        console.warn('[AudioService] Indexed microphones require a rebuilt native addon; ignoring gain for mic index:', micIndex);
+    }
+
     muteMicrophone(muted) {
         if (!this.initialized) throw new Error('AudioEngine not initialized');
         addon.muteMicrophone(muted);
+    }
+
+    muteMicrophoneByIndex(micIndex, muted) {
+        console.log('[AUDIOSERVICE MUTE MIC]', { micIndex, muted, initialized: this.initialized });
+        if (!this.initialized) throw new Error('AudioEngine not initialized');
+        if (this._hasAddonFunction('muteMicrophoneByIndex')) {
+            console.log('[AUDIOSERVICE] Calling addon.muteMicrophoneByIndex', micIndex, muted);
+            addon.muteMicrophoneByIndex(micIndex, muted);
+            return;
+        }
+        if (Number(micIndex) === 0) {
+            console.log('[AUDIOSERVICE] Falling back to addon.muteMicrophone', muted);
+            addon.muteMicrophone(muted);
+            return;
+        }
+        console.warn('[AudioService] Indexed microphones require a rebuilt native addon; ignoring mute for mic index:', micIndex);
     }
 
     getMicrophoneSnapshot() {
@@ -392,6 +503,8 @@ class AudioService {
     startRecording() {
         if (!this.initialized) throw new Error('AudioEngine not initialized');
         const { app } = require('electron');
+        this._callAddonIfAvailable('setActiveSession', 'Podcast');
+        this._callAddonIfAvailable('setOutputSession', 'Podcast');
         
         const now = new Date();
         const timestamp = now.toISOString().replace(/T/, '_').replace(/:/g, '-').split('.')[0];
@@ -503,6 +616,16 @@ class AudioService {
     setLimiter(settings) {
         if (!this.initialized) throw new Error('AudioEngine not initialized');
         addon.setLimiter(settings);
+    }
+
+    setMicrophoneCompressor(micIndex, settings) {
+        if (!this.initialized) throw new Error('AudioEngine not initialized');
+        this._callAddonIfAvailable('setMicrophoneCompressor', micIndex, settings);
+    }
+
+    setMicrophoneLimiter(micIndex, settings) {
+        if (!this.initialized) throw new Error('AudioEngine not initialized');
+        this._callAddonIfAvailable('setMicrophoneLimiter', micIndex, settings);
     }
 
     getLimiter() {

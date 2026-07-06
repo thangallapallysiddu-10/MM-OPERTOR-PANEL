@@ -15,4 +15,4 @@ config.resolver.blockList = Array.isArray(existingBlockList)
 
 module.exports = withNativeWind(config, {
   input: "./global.css",
-});
+})

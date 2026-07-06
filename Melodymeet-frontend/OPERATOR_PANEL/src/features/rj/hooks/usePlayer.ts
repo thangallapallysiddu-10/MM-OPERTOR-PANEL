@@ -120,12 +120,18 @@ export const usePlayer = ({
       await audio.unloadDeck(deckId).catch(() => {});
       return;
     }
-    const url = track.audioUrl || (track as any).fileUrl || track.filePath;
+    const url = track.filePath || track.audioUrl || (track as any).fileUrl;
     if (!url) {
       console.warn('[usePlayer] loadDeck: no audioUrl on track', track.title);
       return;
     }
-    console.log('[React TRACE] usePlayer.loadDeck', { deckId, url, title: track.title });
+    console.log('[React TRACE] usePlayer.loadDeck', {
+      deckId,
+      url,
+      filePath: track.filePath,
+      audioUrl: track.audioUrl,
+      title: track.title,
+    });
     await audio.loadDeck(deckId, url).catch((err) =>
       console.warn('[usePlayer] loadDeck failed:', err)
     );

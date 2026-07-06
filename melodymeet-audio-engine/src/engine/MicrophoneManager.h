@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../audio/input/MicrophoneSource.h"
+#include <cstddef>
 #include <memory>
 #include <vector>
 
@@ -20,7 +21,8 @@ public:
     void initialize(int numMicrophones);
 
     std::shared_ptr<MicrophoneSource> getPrimaryMicrophone() const;
-    std::vector<std::shared_ptr<MicrophoneSource>> getMicrophones() const;
+    std::shared_ptr<MicrophoneSource> getMicrophone(std::size_t index) const;
+    const std::vector<std::shared_ptr<MicrophoneSource>>& getMicrophones() const;
 
 private:
     std::vector<std::shared_ptr<MicrophoneSource>> microphones_;

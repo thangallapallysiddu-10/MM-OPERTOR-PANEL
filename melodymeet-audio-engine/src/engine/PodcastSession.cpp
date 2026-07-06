@@ -2,7 +2,6 @@
 
 #include <algorithm>
 #include <cmath>
-#include <iostream>
 
 namespace melodymeet
 {
@@ -13,8 +12,8 @@ namespace
 
 PodcastSession::PodcastSession(BufferPool& bufferPool)
 {
-    // Initialize MicrophoneManager for Podcast layout (6 microphones)
-    microphoneManager_.initialize(6);
+    // Podcast is intentionally single-mic for the current production scope.
+    microphoneManager_.initialize(1);
 
     previewPlayback_ = std::make_shared<DeckPlayer>(bufferPool);
 
@@ -30,31 +29,18 @@ PodcastSession::PodcastSession(BufferPool& bufferPool)
 
 void PodcastSession::prepare(double sampleRate, int bufferSize, int numOutputChannels)
 {
+    // mixer_.prepare() calls prepare() on all registered sources (previewPlayback_
+    // and the mic). No need to prepare them individually here.
     mixer_.prepare(sampleRate, bufferSize, numOutputChannels);
     outputStage_.prepare(sampleRate, bufferSize, numOutputChannels);
     recorder_.prepare(sampleRate, bufferSize, numOutputChannels);
-    
-    if (previewPlayback_) previewPlayback_->prepare(sampleRate, bufferSize, numOutputChannels);
-    
-    for (const auto& mic : microphoneManager_.getMicrophones()) {
-        if (mic) {
-            mic->prepare(sampleRate, bufferSize, numOutputChannels);
-        }
-    }
 }
 
 void PodcastSession::release()
 {
+    // mixer_.release() calls release() on all registered sources.
     mixer_.release();
     outputStage_.release();
-    
-    if (previewPlayback_) previewPlayback_->release();
-    
-    for (const auto& mic : microphoneManager_.getMicrophones()) {
-        if (mic) {
-            mic->release();
-        }
-    }
 }
 
 void PodcastSession::process(float* const* outputChannelData, int numOutputChannels, int numSamples)

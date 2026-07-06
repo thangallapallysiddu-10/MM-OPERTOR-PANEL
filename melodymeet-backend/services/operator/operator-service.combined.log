@@ -1,0 +1,8 @@
+◇ injected env (13) from .env // tip: ⌘ custom filepath { path: '/custom/path/.env' }
+✅ Environment variables validated successfully
+◇ injected env (0) from .env // tip: ⌘ enable debugging { debug: true }
+PostgreSQL database synced successfully (Sequelize)
+Auth database schema applied successfully
+MelodyMeet Operator Service running on http://localhost:5000
+WebSocket namespaces: /stream | /chat | /podcast | /rj
+Auth endpoints available at /api/auth/*

@@ -9,7 +9,7 @@ React UI -> Unified Audio SDK -> Electron IPC -> AudioService -> Native Addon ->
 Only the Cue path was audited and changed in this pass.
 
 ## 1. Root Cause
-
+[]
 The saved cue position was lost in the React cue control before native recall.
 
 `Set Cue` used the draggable cue marker percentage as the cue source:

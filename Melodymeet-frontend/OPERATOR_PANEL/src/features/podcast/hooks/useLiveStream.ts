@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { Platform, Alert } from 'react-native';
-import { useAppStore } from '../../../store/useAppStore';
+import { useAppStore, type GuestSlot } from '../../../store/useAppStore';
 import { PodcastApi } from '../../../services/api/operatorApi';
 import { audio } from '../../../services/audio';
 
@@ -71,13 +71,14 @@ export const useLiveStream = () => {
           // Fetch occupied guest slots
           const slots = await PodcastApi.getGuestSlots(active.roomId);
           const store = useAppStore.getState();
-          const seededSlots = store.podcast.guestSlots.map((slot) => {
+          const seededSlots: GuestSlot[] = store.podcast.guestSlots.map((slot) => {
             const occupied = slots.find((s: any) => s.slotId === slot.slotId);
+            const isConnected = occupied && occupied.status === 'connected';
             return {
               ...slot,
               url: `${base}/podcast/guest/${slot.slotId}/${active.roomId}`,
-              status: occupied && occupied.status === 'connected' ? 'connected' : 'offline',
-              guestName: occupied && occupied.status === 'connected' ? occupied.guestName : '',
+              status: isConnected ? 'connected' : 'empty',
+              guestName: isConnected ? occupied.guestName : null,
             };
           });
           store.setGuestSlots(seededSlots);

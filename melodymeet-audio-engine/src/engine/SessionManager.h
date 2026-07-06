@@ -1,6 +1,7 @@
 #pragma once
 
 #include "AudioSession.h"
+#include <atomic>
 #include <map>
 #include <memory>
 #include <vector>
@@ -46,8 +47,8 @@ public:
 
 private:
     std::map<SessionType, std::unique_ptr<AudioSession>> sessions_;
-    SessionType activeSessionType_{SessionType::RJ};
-    SessionType outputSessionType_{SessionType::RJ};
+    std::atomic<SessionType> activeSessionType_{SessionType::RJ};
+    std::atomic<SessionType> outputSessionType_{SessionType::RJ};
 };
 
 } // namespace melodymeet

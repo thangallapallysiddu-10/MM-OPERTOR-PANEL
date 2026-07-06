@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef, useEffect } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   View,
   Text,
@@ -211,7 +211,6 @@ export const PodcastPlaylistModal: React.FC<PodcastPlaylistModalProps> = ({
   const [fetchingMetadata, setFetchingMetadata] = useState(false);
   const [internalPlayingId, setInternalPlayingId] = useState<number | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
-  const playbackAudioRef = useRef<HTMLAudioElement | null>(null);
 
   const currentlyPlayingTrackId = externalPlayingId !== undefined ? externalPlayingId : internalPlayingId;
 
@@ -252,24 +251,11 @@ export const PodcastPlaylistModal: React.FC<PodcastPlaylistModalProps> = ({
 
   // ─── STOP AUDIO ────────────────────────────────────────────────
   const stopAudio = () => {
-    if (playbackAudioRef.current) {
-      try {
-        playbackAudioRef.current.pause();
-        playbackAudioRef.current.src = '';
-      } catch (e) {}
-      playbackAudioRef.current = null;
-    }
     setIsPlaying(false);
     setInternalPlayingId(null);
   };
 
   // ─── CLEANUP ON UNMOUNT ──────────────────────────────────────
-  useEffect(() => {
-    return () => {
-      stopAudio();
-    };
-  }, []);
-
   // ─── UPLOAD ────────────────────────────────────────────────────
   const handleUploadFile = async () => {
     if (uploading) return;
@@ -327,52 +313,20 @@ export const PodcastPlaylistModal: React.FC<PodcastPlaylistModalProps> = ({
 
   // ─── PLAY / PAUSE (FIXED CRITICAL MULTI-INSTANCE BUG) ───────────
   const handlePlayPause = (track: PodcastPlaylistTrack) => {
-    const src = track.uri || track.url;
-    if (!src) {
-      Alert.alert('No Audio', 'This track has no audio source');
-      return;
-    }
-
     // SCENARIO 1: Clicking a brand new track while another track is playing/paused
     if (currentlyPlayingTrackId !== track.id) {
-      stopAudio(); // Destroys previous track sound output cleanly before initialization
-
       setIsPlaying(true);
       setInternalPlayingId(track.id);
       onPlayTrack?.(track);
-
-      try {
-        const audioInstance = new Audio(src);
-        audioInstance.loop = false;
-        audioInstance.volume = 0.8;
-        audioInstance.play().catch(err => {
-          console.error("Audio playback error:", err);
-          Alert.alert("Playback Error", "Browser blocked playback. Interact with the page and try again.");
-          stopAudio();
-        });
-        audioInstance.addEventListener('ended', () => {
-          stopAudio();
-        });
-        playbackAudioRef.current = audioInstance;
-      } catch (e) {
-        console.error("Failed to initialize audio:", e);
-      }
       return;
     }
 
     // SCENARIO 2: Toggling play/pause status for the same track
     if (isPlaying) {
       setIsPlaying(false);
-      if (playbackAudioRef.current) {
-        try { playbackAudioRef.current.pause(); } catch (e) {}
-      }
     } else {
       setIsPlaying(true);
-      if (playbackAudioRef.current) {
-        try {
-          playbackAudioRef.current.play().catch(() => {});
-        } catch (e) {}
-      }
+      onPlayTrack?.(track);
     }
   };
 

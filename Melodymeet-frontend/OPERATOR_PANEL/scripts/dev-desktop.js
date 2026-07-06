@@ -3,6 +3,7 @@ const path = require('path');
 const fs = require('fs');
 
 const env = { ...process.env };
+env.BROWSER = 'none';
 
 // Set up path and environment variables for Windows stability
 if (process.platform === 'win32') {

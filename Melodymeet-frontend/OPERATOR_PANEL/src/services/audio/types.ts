@@ -1,4 +1,5 @@
 export type DeckId = 'A' | 'B';
+export type AudioSessionType = 'RJ' | 'Podcast';
 
 export interface FXParameters {
   highPassFilter?: number;
@@ -72,6 +73,8 @@ export interface IAudioAdapter {
   getEngineInfo(): Promise<EngineInfo>;
   getEngineHealthSnapshot(): Promise<Record<string, unknown>>;
   getVersions(): Promise<Record<string, number>>;
+  setActiveSession(sessionType: AudioSessionType): Promise<void>;
+  setOutputSession(sessionType: AudioSessionType): Promise<void>;
   getMeterSnapshot(): Promise<Record<string, unknown>>;
   getMixerSnapshot(): Promise<Record<string, unknown>>;
   getMicrophoneSnapshot(): Promise<Record<string, unknown>>;
@@ -101,13 +104,19 @@ export interface IAudioAdapter {
   getCompressor(): Promise<CompressorSettings>;
   setLimiter(s: LimiterSettings): Promise<void>;
   getLimiter(): Promise<LimiterSettings>;
+  setMicrophoneCompressor(micIndex: number, s: CompressorSettings): Promise<void>;
+  setMicrophoneLimiter(micIndex: number, s: LimiterSettings): Promise<void>;
   resetDSP(): Promise<void>;
 
   getAvailableInputDevices(): Promise<string[]>;
   enableMicrophone(input: string): Promise<void>;
+  enableMicrophoneByIndex(micIndex: number, input: string): Promise<void>;
   disableMicrophone(): Promise<void>;
+  disableMicrophoneByIndex(micIndex: number): Promise<void>;
   setMicrophoneGain(gain: number): Promise<void>;
+  setMicrophoneGainByIndex(micIndex: number, gain: number): Promise<void>;
   muteMicrophone(muted: boolean): Promise<void>;
+  muteMicrophoneByIndex(micIndex: number, muted: boolean): Promise<void>;
 
   startRecording(): Promise<void>;
   pauseRecording(): Promise<void>;

@@ -10,6 +10,7 @@ import { Feather } from '@expo/vector-icons';
 export interface SpeakRequest {
   id: string;
   userName: string;
+  slotId?: string;
   timestamp: string;
   status: 'pending' | 'accepted' | 'rejected';
 }

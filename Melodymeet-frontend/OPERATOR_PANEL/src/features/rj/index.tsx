@@ -49,6 +49,12 @@ const isIOS = Platform.OS === 'ios';
 const isAndroid = Platform.OS === 'android';
 const isNative = isIOS || isAndroid;
 
+const getNativeMicIndex = (micId?: string) => {
+  const match = micId?.match(/^mic(\d+)$/);
+  if (!match) return 0;
+  return Math.max(0, Math.min(4, Number(match[1]) - 1));
+};
+
 const RJStudio = ({ navigation }: any) => {
   const { isLive, toggleLive, setCurrentTrack, activeChannel, setActiveChannel, activeStreamId, streams, listeners } = useOperator();
   const studioId = activeStreamId ?? streams[0]?.id ?? null;
@@ -124,7 +130,7 @@ const RJStudio = ({ navigation }: any) => {
     setShowRjSetupModal(true);
     if (!isLive) {
       const selectedMic = rjStudio.rjMics.find((mic: any) => mic.isActive) ?? rjStudio.rjMics[0];
-      void audio.enableMicrophone((selectedMic as any)?.input || '').catch(() => {});
+      void audio.enableMicrophoneByIndex(getNativeMicIndex((selectedMic as any)?.id), (selectedMic as any)?.input || '').catch((err) => { console.error('[SCHEDULE] enableMic error:', err); });
       toggleLive();
     }
   };
@@ -154,7 +160,7 @@ const RJStudio = ({ navigation }: any) => {
         setShowRjSetupModal(true);
         if (!isLive) {
           const selectedMic = rjStudio.rjMics.find((mic: any) => mic.isActive) ?? rjStudio.rjMics[0];
-          void audio.enableMicrophone((selectedMic as any)?.input || '').catch(() => {});
+          void audio.enableMicrophoneByIndex(getNativeMicIndex((selectedMic as any)?.id), (selectedMic as any)?.input || '').catch((err) => { console.error('[AUTOSTART] enableMic error:', err); });
           toggleLive();
         }
       }
@@ -270,12 +276,14 @@ const RJStudio = ({ navigation }: any) => {
 
   const handleToggleLiveFromModal = () => {
     if (isLive) {
-      void audio.disableMicrophone().catch(() => {});
+      const selectedMic = rjStudio.rjMics.find((mic: any) => mic.isActive) ?? rjStudio.rjMics[0];
+      void audio.disableMicrophoneByIndex(getNativeMicIndex((selectedMic as any)?.id)).catch((err) => { console.error('[GO LIVE] disableMic error:', err); });
       toggleLive();
       setShowRjSetupModal(false);
     } else {
       const selectedMic = rjStudio.rjMics.find((mic: any) => mic.isActive) ?? rjStudio.rjMics[0];
-      void audio.enableMicrophone((selectedMic as any)?.input || '').catch(() => {});
+      console.log('[GO LIVE] Enabling mic', { micId: (selectedMic as any)?.id, input: (selectedMic as any)?.input, nativeIdx: getNativeMicIndex((selectedMic as any)?.id) });
+      void audio.enableMicrophoneByIndex(getNativeMicIndex((selectedMic as any)?.id), (selectedMic as any)?.input || '').catch((err) => { console.error('[GO LIVE] enableMic error:', err); });
       toggleLive();
     }
   };

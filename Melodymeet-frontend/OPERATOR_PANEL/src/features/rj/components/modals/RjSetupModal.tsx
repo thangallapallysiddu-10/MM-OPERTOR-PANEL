@@ -215,7 +215,18 @@ function applyChannelChange(
 
 const percentToMicGain = (value: number) => Math.max(0, value / 50);
 const percentToEqDb = (value: number) => ((value - 50) / 50) * 12;
-const dbToLinearGain = (valueDb: number) => (valueDb <= -60 ? 0 : Math.pow(10, valueDb / 20));
+// Maps dB from the master volume knob (-60 … +6 dB) to a linear gain value
+// that is safe to pass to the native MasterGainProcessor.
+//
+// The floor is 1e-6 (≈ -120 dBFS) rather than 0.
+// Sending gain=0 would cause SmoothedValue to asymptote toward zero and then
+// be unable to recover when the fader is raised again — the native engine
+// enforces the same floor via kGainFloor, but applying it here prevents the
+// incorrect value from ever crossing the IPC boundary.
+const dbToLinearGain = (valueDb: number): number => {
+  if (valueDb <= -60) return 1e-6;          // floor: -120 dBFS, recoverable
+  return Math.pow(10, valueDb / 20);
+};
 
 // ─── COMPONENT ────────────────────────────────────────────────────────────────
 
@@ -291,10 +302,11 @@ export const RjSetupModal: React.FC<RjSetupModalProps> = ({
     (id: number, changes: Partial<MicChannel>) => {
       applyChannelChange(id, changes, micsToUse, onToggleMicMute, onToggleMicActive, onUpdateMicDevice);
 
-      if (id !== 1) return;
+      const micIndex = Math.max(0, Math.min(4, id - 1));
+      const channelId = `Mic${id}`;
 
       if (typeof changes.gain === 'number') {
-        void audio.setMicrophoneGain(percentToMicGain(changes.gain));
+        void audio.setMicrophoneGainByIndex(micIndex, percentToMicGain(changes.gain));
       }
 
       if (
@@ -307,7 +319,7 @@ export const RjSetupModal: React.FC<RjSetupModalProps> = ({
         const mid = typeof changes.mid === 'number' ? changes.mid : current?.mid ?? 50;
         const hi = typeof changes.hi === 'number' ? changes.hi : current?.hi ?? 50;
 
-        void audio.setEQ('Mic', {
+        void audio.setEQ(channelId, {
           eqBass: percentToEqDb(low),
           eqMid: percentToEqDb(mid),
           eqTreble: percentToEqDb(hi),
@@ -387,6 +399,7 @@ export const RjSetupModal: React.FC<RjSetupModalProps> = ({
         duration: track.duration ?? '03:30',
         channel: 1,
         audioUrl: (track as any).url ?? (track as any).uri ?? (track as any).filePath ?? '',
+        filePath: (track as any).filePath,
         artwork: '',
         shortTitle: track.title.substring(0, 20),
         gain: 0.8,

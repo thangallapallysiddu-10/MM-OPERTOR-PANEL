@@ -5,6 +5,7 @@
 #include <mutex>
 #include <stdexcept>
 #include <vector>
+#include <array>
 
 // Forward declare to avoid pulling engine headers into addon.cpp
 namespace melodymeet
@@ -37,6 +38,9 @@ public:
 
     /// Returns true if the engine is currently initialized.
     bool isInitialized() const;
+
+    void setActiveSession(const std::string& sessionType);
+    void setOutputSession(const std::string& sessionType);
 
     struct VersionsSnapshot {
         uint64_t mixer;
@@ -75,6 +79,7 @@ public:
         double position;
         double duration;
         bool isLoaded;
+        bool isLoading;   // true while background decode is in progress
         bool loadFailed;
     };
 
@@ -135,6 +140,10 @@ public:
     void disableMicrophone();
     void setMicrophoneGain(float gain);
     void muteMicrophone(bool muted);
+    bool enableMicrophone(int micIndex, const std::string& deviceName);
+    void disableMicrophone(int micIndex);
+    void setMicrophoneGain(int micIndex, float gain);
+    void muteMicrophone(int micIndex, bool muted);
     MicrophoneSnapshot getMicrophoneSnapshot() const;
 
     // --- Recording API ---
@@ -221,9 +230,11 @@ public:
 
     void setCompressor(const CompressorSettings& settings);
     CompressorSettings getCompressor() const;
+    void setMicrophoneCompressor(int micIndex, const CompressorSettings& settings);
 
     void setLimiter(const LimiterSettings& settings);
     LimiterSettings getLimiter() const;
+    void setMicrophoneLimiter(int micIndex, const LimiterSettings& settings);
 
     void resetDSP();
     DSPSnapshot getDSPSnapshot() const;
@@ -243,6 +254,10 @@ public:
         
         float micPeakL;
         float micPeakR;
+        float micRmsL;
+        float micRmsR;
+        std::array<float, 5> rjMicPeak{};
+        std::array<float, 5> rjMicRms{};
     };
     
     MeterSnapshot getMeterSnapshot() const;

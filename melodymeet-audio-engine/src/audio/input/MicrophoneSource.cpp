@@ -1,4 +1,5 @@
 #include "MicrophoneSource.h"
+#include "../../utilities/RtLogger.h"
 
 #include <algorithm>
 #include <cstring>
@@ -84,6 +85,10 @@ void MicrophoneSource::process(float* const* outputChannels, int channelCount, i
         return;
     }
 
+    // STEP 4 DIAGNOSTIC: Process entry
+    static std::atomic<uint64_t> processTraceCount{0};
+    const auto traceId = processTraceCount.fetch_add(1, std::memory_order_relaxed) + 1;
+
     // Zero the entire output buffer first to guarantee silence on underrun
     // and prevent stale data when FIFO has fewer samples than requested.
     for (int ch = 0; ch < channelCount; ++ch) {
@@ -96,6 +101,12 @@ void MicrophoneSource::process(float* const* outputChannels, int channelCount, i
     int toRead = std::min(numSamples, ready);
 
     if (toRead <= 0) {
+        if (traceId % 100 == 0) {
+            char buf[256];
+            std::snprintf(buf, sizeof(buf), "[MIC PROCESS] UNDERRUN ready=%d requested=%d",
+                ready, numSamples);
+            melodymeet::RtLogger::get().log(buf);
+        }
         meterEngine_.reset();
         return; // Underrun — output is already zeroed above.
     }
@@ -129,8 +140,37 @@ void MicrophoneSource::process(float* const* outputChannels, int channelCount, i
 
     fifo_.finishedRead(blockSize1 + blockSize2);
 
+    // Calculate peak before DSP
+    float preDspPeak = 0.0f;
+    for (int ch = 0; ch < channelCount; ++ch) {
+        if (outputChannels[ch]) {
+            for (int s = 0; s < numSamples; ++s) {
+                preDspPeak = std::max(preDspPeak, std::abs(outputChannels[ch][s]));
+            }
+        }
+    }
+
     // Apply DSP to the full block (tail beyond toRead is zeroed).
     dspChain_.process(outputChannels, channelCount, numSamples);
+
+    // Calculate peak after DSP
+    float postDspPeak = 0.0f;
+    for (int ch = 0; ch < channelCount; ++ch) {
+        if (outputChannels[ch]) {
+            for (int s = 0; s < numSamples; ++s) {
+                postDspPeak = std::max(postDspPeak, std::abs(outputChannels[ch][s]));
+            }
+        }
+    }
+
+    if (traceId % 100 == 0) {
+        char buf[256];
+        std::snprintf(buf, sizeof(buf), 
+            "[MIC PROCESS] ready=%d toRead=%d muted=%d preDspPeak=%.6f postDspPeak=%.6f gain=%.4f",
+            ready, toRead, static_cast<int>(isMuted), preDspPeak, postDspPeak, gain_.load(std::memory_order_relaxed));
+        melodymeet::RtLogger::get().log(buf);
+        std::cout << "[MIC PEAK] " << postDspPeak << std::endl;
+    }
 
     const int channelsToMeter = std::min(channelCount, 8);
     const float* meterChannels[8] = {};
@@ -168,6 +208,7 @@ int MicrophoneSource::getChannelCount() const noexcept {
 }
 
 void MicrophoneSource::pushAudio(const float* const* inputChannels, int numInputChannels, int numSamples) noexcept {
+    std::cout << "[MIC RECEIVED AUDIO]" << this << std::endl;
     if (!prepared_ || !enabled_.load(std::memory_order_relaxed)
         || numSamples <= 0 || inputChannels == nullptr)
     {
@@ -180,6 +221,17 @@ void MicrophoneSource::pushAudio(const float* const* inputChannels, int numInput
     if (toWrite <= 0)
     {
         return; // Overflow — drop this block.
+    }
+
+    // STEP 3 DIAGNOSTIC: FIFO status
+    static std::atomic<uint64_t> fifoTraceCount{0};
+    const auto traceId = fifoTraceCount.fetch_add(1, std::memory_order_relaxed) + 1;
+    
+    if (traceId % 100 == 0) {
+        char buf[256];
+        std::snprintf(buf, sizeof(buf), "[MIC FIFO] available=%d toWrite=%d freeSpace=%d",
+            fifo_.getNumReady(), toWrite, freeSpace);
+        melodymeet::RtLogger::get().log(buf);
     }
 
     int startIndex1, blockSize1, startIndex2, blockSize2;
