@@ -168,18 +168,6 @@ void OutputStage::process(const float* const* inputChannels, int channelCount, i
         masterChain_.process(processedChannels_.data(), channelsToCopy, samplesToCopy);
     }
 
-    if (traceId % 100 == 0) {
-        float outPeak = peakOf(processedChannels_.data(), channelsToCopy, samplesToCopy);
-        char buf[RtLogger::kMaxMsgLen];
-        std::snprintf(buf, sizeof(buf),
-            "[MASTER PEAK] input=%.6f output=%.6f",
-            masterInputPeak,
-            outPeak);
-        RtLogger::get().log(buf);
-        std::cout << "[MASTER PEAK] " << outPeak << std::endl;
-        std::cout << "[MONITOR PEAK] 0.0 (Monitor routing is not implemented in OutputStage/RJSession)" << std::endl;
-    }
-
     // Apply metering
     meterEngine_.process(processedChannelsConst_.data(), channelsToCopy, samplesToCopy);
 }

@@ -54,16 +54,30 @@ type Channel = {
   soloed: boolean;
   vuL: number;
   vuR: number;
+  compEnabled: boolean;
+  compThreshold: number;
+  compRatio: number;
+  compAttack: number;
+  compRelease: number;
+  compMakeupGain: number;
+  limEnabled: boolean;
+  limThreshold: number;
+  limRelease: number;
+  connected?: boolean;
+  clipped?: boolean;
+  rms?: number;
+  noiseFloor?: number;
+  signalPresent?: boolean;
 };
 
 type ChannelChanges = Partial<Channel>;
 
 const DEFAULT_CHANNELS: Channel[] = [
-  {id:1,label:"1. RJ Mic 1",     name:"Mamatha",       input:"Input 1",  isOnAir:true,  gain:45, hi:50, mid:50, low:50, fader:60, muted:false, soloed:false, vuL:0, vuR:0},
-  {id:2,label:"2. Guest Mic 1",  name:"Leo",         input:"Input 2",  isOnAir:false, gain:35, hi:50, mid:50, low:50, fader:58, muted:false, soloed:false, vuL:0, vuR:0},
-  {id:3,label:"3. Guest Mic 2",  name:"Riya",        input:"Input 3",  isOnAir:false, gain:50, hi:50, mid:50, low:50, fader:65, muted:false, soloed:false, vuL:0, vuR:0},
-  {id:4,label:"4. Guest Mic 3",  name:"Arjun",       input:"Input 4",  isOnAir:false, gain:40, hi:50, mid:50, low:50, fader:60, muted:false, soloed:false, vuL:0, vuR:0},
-  {id:5,label:"5. Call-in Mic 1",name:"Live Caller", input:"Call In 1",isOnAir:false, gain:55, hi:50, mid:50, low:50, fader:68, muted:false, soloed:false, vuL:0, vuR:0},
+  {id:1,label:"1. RJ Mic 1",     name:"Mamatha",       input:"Input 1",  isOnAir:true,  gain:45, hi:50, mid:50, low:50, fader:60, muted:false, soloed:false, vuL:0, vuR:0, compEnabled: true, compThreshold: -15, compRatio: 3, compAttack: 10, compRelease: 100, compMakeupGain: 2, limEnabled: true, limThreshold: -1.0, limRelease: 80},
+  {id:2,label:"2. Guest Mic 1",  name:"Leo",         input:"Input 2",  isOnAir:false, gain:35, hi:50, mid:50, low:50, fader:58, muted:false, soloed:false, vuL:0, vuR:0, compEnabled: true, compThreshold: -15, compRatio: 3, compAttack: 10, compRelease: 100, compMakeupGain: 2, limEnabled: true, limThreshold: -1.0, limRelease: 80},
+  {id:3,label:"3. Guest Mic 2",  name:"Riya",        input:"Input 3",  isOnAir:false, gain:50, hi:50, mid:50, low:50, fader:65, muted:false, soloed:false, vuL:0, vuR:0, compEnabled: true, compThreshold: -15, compRatio: 3, compAttack: 10, compRelease: 100, compMakeupGain: 2, limEnabled: true, limThreshold: -1.0, limRelease: 80},
+  {id:4,label:"4. Guest Mic 3",  name:"Arjun",       input:"Input 4",  isOnAir:false, gain:40, hi:50, mid:50, low:50, fader:60, muted:false, soloed:false, vuL:0, vuR:0, compEnabled: true, compThreshold: -15, compRatio: 3, compAttack: 10, compRelease: 100, compMakeupGain: 2, limEnabled: true, limThreshold: -1.0, limRelease: 80},
+  {id:5,label:"5. Call-in Mic 1",name:"Live Caller", input:"Call In 1",isOnAir:false, gain:55, hi:50, mid:50, low:50, fader:68, muted:false, soloed:false, vuL:0, vuR:0, compEnabled: true, compThreshold: -15, compRatio: 3, compAttack: 10, compRelease: 100, compMakeupGain: 2, limEnabled: true, limThreshold: -1.0, limRelease: 80},
 ];
 
 // ── KNOB ──────────────────────────────────────────────────────────────────────
@@ -357,6 +371,9 @@ function ChannelStrip({ ch, onChange, availableDevices }: { ch: Channel; onChang
   const isMic1 = ch.id === 1;
   const bottomLabel = ch.label.replace(/^\d+\.\s*/, "");
 
+  const [compExpanded, setCompExpanded] = useState(false);
+  const [limExpanded, setLimExpanded] = useState(false);
+
   return (
     <div style={{
       flex: 1,
@@ -395,7 +412,7 @@ function ChannelStrip({ ch, onChange, availableDevices }: { ch: Channel; onChang
             boxShadow: ch.isOnAir ? "0 0 5px #ffffff" : "none",
           }} />
           <span style={{ fontSize: 10, fontWeight: 800, color: "#fff", fontFamily: "monospace" }}>
-            {ch.isOnAir ? "ON AIR" : "GO LIVE"}
+            {ch.isOnAir ? "ON AIR" : "OFF AIR"}
           </span>
         </button>
         <div style={{ flex: 1, position: "relative" }}>
@@ -449,6 +466,127 @@ function ChannelStrip({ ch, onChange, availableDevices }: { ch: Channel; onChang
           </div>
         ))}
       </div>
+
+      {/* COMPRESSOR */}
+      <div style={{ marginBottom: 12, borderTop: `1px solid ${C.stripBorder}`, paddingTop: 10 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: compExpanded ? 10 : 0 }}>
+          <div 
+            onClick={() => setCompExpanded(!compExpanded)} 
+            style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', gap: 4 }}
+          >
+            <span style={{ fontSize: 9, color: C.textLight }}>{compExpanded ? '▼' : '▶'}</span>
+            <span style={{ fontSize: 10, color: C.textLight, fontFamily: 'monospace', fontWeight: 700 }}>COMPRESSOR</span>
+          </div>
+          <button 
+             onClick={() => upd({ compEnabled: !ch.compEnabled })}
+             style={{
+               fontSize: 9, padding: '2px 8px', borderRadius: 4, 
+               backgroundColor: ch.compEnabled ? C.onAirGreen : C.offlineGray,
+               color: '#fff', border: 'none', cursor: 'pointer', fontFamily: 'monospace', fontWeight: 700
+             }}
+          >
+            {ch.compEnabled ? 'ON' : 'OFF'}
+          </button>
+        </div>
+        
+        {compExpanded && (
+          <>
+            {/* ROW 1: Threshold, Ratio, Makeup */}
+            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8, opacity: ch.compEnabled ? 1 : 0.4 }}>
+               <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+                 <span style={{ fontSize: 9, color: C.textMuted, fontFamily: "monospace" }}>THRESH</span>
+                 <Knob value={((ch.compThreshold + 40) / 40) * 100} onChange={v => upd({ compThreshold: -40 + (v / 100) * 40 })} size={32} />
+               <span style={{ fontSize: 9, color: C.textLight, fontFamily: "monospace" }}>{ch.compThreshold.toFixed(1)} dB</span>
+             </div>
+           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+             <span style={{ fontSize: 9, color: C.textMuted, fontFamily: "monospace" }}>RATIO</span>
+             <Knob value={((ch.compRatio - 1) / 19) * 100} onChange={v => upd({ compRatio: 1 + (v / 100) * 19 })} size={32} />
+             <span style={{ fontSize: 9, color: C.textLight, fontFamily: "monospace" }}>{ch.compRatio.toFixed(1)}:1</span>
+           </div>
+           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+             <span style={{ fontSize: 9, color: C.textMuted, fontFamily: "monospace" }}>MAKEUP</span>
+             <Knob value={(ch.compMakeupGain / 12) * 100} onChange={v => upd({ compMakeupGain: (v / 100) * 12 })} size={32} />
+             <span style={{ fontSize: 9, color: C.textLight, fontFamily: "monospace" }}>{ch.compMakeupGain.toFixed(1)} dB</span>
+           </div>
+        </div>
+
+        {/* ROW 2: Attack, Release */}
+        <div style={{ display: "flex", justifyContent: "center", gap: 20, opacity: ch.compEnabled ? 1 : 0.4 }}>
+           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+             <span style={{ fontSize: 9, color: C.textMuted, fontFamily: "monospace" }}>ATTACK</span>
+             <Knob value={(ch.compAttack / 100) * 100} onChange={v => upd({ compAttack: (v / 100) * 100 })} size={32} />
+             <span style={{ fontSize: 9, color: C.textLight, fontFamily: "monospace" }}>{Math.round(ch.compAttack)} ms</span>
+           </div>
+           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+             <span style={{ fontSize: 9, color: C.textMuted, fontFamily: "monospace" }}>RELEASE</span>
+             <Knob value={((ch.compRelease - 10) / 490) * 100} onChange={v => upd({ compRelease: 10 + (v / 100) * 490 })} size={32} />
+             <span style={{ fontSize: 9, color: C.textLight, fontFamily: "monospace" }}>{Math.round(ch.compRelease)} ms</span>
+           </div>
+        </div>
+        </>
+        )}
+      </div>
+
+      {/* LIMITER */}
+      <div style={{ marginBottom: 12, borderTop: `1px solid ${C.stripBorder}`, paddingTop: 10 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: limExpanded ? 10 : 0 }}>
+          <div 
+            onClick={() => setLimExpanded(!limExpanded)} 
+            style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', gap: 4 }}
+          >
+            <span style={{ fontSize: 9, color: C.textLight }}>{limExpanded ? '▼' : '▶'}</span>
+            <span style={{ fontSize: 10, color: C.textLight, fontFamily: 'monospace', fontWeight: 700 }}>LIMITER</span>
+          </div>
+          <button 
+             onClick={() => upd({ limEnabled: !ch.limEnabled })}
+             style={{
+               fontSize: 9, padding: '2px 8px', borderRadius: 4, 
+               backgroundColor: ch.limEnabled ? '#ef4444' : C.offlineGray,
+               color: '#fff', border: 'none', cursor: 'pointer', fontFamily: 'monospace', fontWeight: 700
+             }}
+          >
+            {ch.limEnabled ? 'ON' : 'OFF'}
+          </button>
+        </div>
+        
+        {limExpanded && (
+        <div style={{ display: "flex", justifyContent: "center", gap: 20, opacity: ch.limEnabled ? 1 : 0.4 }}>
+           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+             <span style={{ fontSize: 9, color: C.textMuted, fontFamily: "monospace" }}>CEILING</span>
+             <Knob value={((ch.limThreshold + 12) / 12) * 100} onChange={v => upd({ limThreshold: -12 + (v / 100) * 12 })} size={32} />
+             <span style={{ fontSize: 9, color: C.textLight, fontFamily: "monospace" }}>{ch.limThreshold.toFixed(1)} dB</span>
+           </div>
+           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+             <span style={{ fontSize: 9, color: C.textMuted, fontFamily: "monospace" }}>RELEASE</span>
+             <Knob value={((ch.limRelease - 10) / 490) * 100} onChange={v => upd({ limRelease: 10 + (v / 100) * 490 })} size={32} />
+             <span style={{ fontSize: 9, color: C.textLight, fontFamily: "monospace" }}>{Math.round(ch.limRelease)} ms</span>
+           </div>
+        </div>
+        )}
+      </div>
+
+        {/* HEALTH METRICS */}
+        <div style={{ marginBottom: 12, padding: '8px', backgroundColor: '#1a1f28', borderRadius: 6, border: `1px solid ${C.stripBorder}` }}>
+          <div style={{ fontSize: 9, color: C.textLight, fontFamily: 'monospace', fontWeight: 700, marginBottom: 6, textAlign: 'center' }}>HEALTH</div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 9, fontFamily: 'monospace', marginBottom: 2 }}>
+            <span style={{ color: C.textMuted }}>Connected</span>
+            <span style={{ color: ch.connected ? C.onAirGreen : '#ef4444' }}>{ch.connected ? 'YES' : 'NO'}</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 9, fontFamily: 'monospace', marginBottom: 2 }}>
+            <span style={{ color: C.textMuted }}>Signal</span>
+            <span style={{ color: ch.signalPresent ? C.onAirGreen : C.offlineGray }}>{ch.signalPresent ? 'PRESENT' : 'NONE'}</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 9, fontFamily: 'monospace', marginBottom: 2 }}>
+            <span style={{ color: C.textMuted }}>Clip</span>
+            <span style={{ color: ch.clipped ? '#ef4444' : C.onAirGreen }}>{ch.clipped ? 'CLIPPED' : 'CLEAN'}</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 9, fontFamily: 'monospace' }}>
+            <span style={{ color: C.textMuted }}>Noise Fl.</span>
+            <span style={{ color: C.textLight }}>
+              {(ch.noiseFloor ?? 0) > 0 ? (20 * Math.log10(ch.noiseFloor!)).toFixed(1) + ' dB' : '-'}
+            </span>
+          </div>
+        </div>
 
       {/* SOLO / MUTE */}
       <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>

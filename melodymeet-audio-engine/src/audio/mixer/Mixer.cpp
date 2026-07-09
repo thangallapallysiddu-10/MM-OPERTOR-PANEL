@@ -421,8 +421,6 @@ void Mixer::process(float* const* outputChannels, int channelCount, int numSampl
         if (!source)
             continue;
 
-        std::cout << "[MIXER PROCESS MIC]" << sourceIndex << std::endl;
-
         // Step 3: Skip disabled channels.
         if (!ch.isEnabled())
             continue;
@@ -451,21 +449,6 @@ void Mixer::process(float* const* outputChannels, int channelCount, int numSampl
 
         // Step 6: Apply gain and Step 8: Sum samples into the program buffer.
         const float gain = ch.getGain();
-        const float inputPeak = peakOf(scratchChannels_.data(), channelCount_, samplesToProcess);
-
-        if (traceId % 100 == 0)
-        {
-            char buf[RtLogger::kMaxMsgLen];
-            std::snprintf(buf, sizeof(buf),
-                "[MIXER INPUT PEAK] sourceId=%u deck=%s gain=%.4f peak=%.6f",
-                static_cast<unsigned>(ch.getChannelId()),
-                (ch.getChannelId() == deckASourceId_ ? "A" : (ch.getChannelId() == deckBSourceId_ ? "B" : "Mic")),
-                gain, inputPeak);
-            RtLogger::get().log(buf);
-            
-            std::cout << "[MIXER INPUT PEAK] sourceId=" << ch.getChannelId() << " peak=" << inputPeak << std::endl;
-            std::cout << "[MIXER CHANNEL OUTPUT] sourceId=" << ch.getChannelId() << " peak=" << (inputPeak * gain) << std::endl;
-        }
 
         if (gain > 0.0f)
         {
@@ -486,20 +469,6 @@ void Mixer::process(float* const* outputChannels, int channelCount, int numSampl
                 }
             }
         }
-    }
-
-    if (traceId % 100 == 0)
-    {
-        float outPeak = peakOf(programChannels_.data(), channelCount_, samplesToProcess);
-        char buf[RtLogger::kMaxMsgLen];
-        std::snprintf(buf, sizeof(buf),
-            "[MIXER OUTPUT PEAK] %.6f soloActive=%d deckAId=%u deckBId=%u",
-            outPeak,
-            static_cast<int>(soloActive),
-            static_cast<unsigned>(deckASourceId_),
-            static_cast<unsigned>(deckBSourceId_));
-        RtLogger::get().log(buf);
-        std::cout << "[MIXER OUTPUT PEAK] " << outPeak << std::endl;
     }
 
     // Copy the final program mix to the caller-provided output buffers.

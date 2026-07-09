@@ -107,8 +107,7 @@ void MicrophoneSource::process(float* const* outputChannels, int channelCount, i
                 ready, numSamples);
             melodymeet::RtLogger::get().log(buf);
         }
-        meterEngine_.reset();
-        return; // Underrun — output is already zeroed above.
+        // Let it continue. outputChannels are already zeroed, which will naturally decay the DSP and Meter.
     }
 
     bool isMuted = muted_.load(std::memory_order_relaxed);
@@ -118,11 +117,6 @@ void MicrophoneSource::process(float* const* outputChannels, int channelCount, i
 
     auto readBlock = [&](int startIdx, int bSize, int destOffset) {
         if (bSize <= 0) return;
-
-        if (isMuted) {
-            // Consume the data but don't mix it — output stays silent.
-            return;
-        }
 
         int chToCopy = std::min(channelCount, numFifoChannels_);
         for (int ch = 0; ch < chToCopy; ++ch) {
@@ -139,6 +133,23 @@ void MicrophoneSource::process(float* const* outputChannels, int channelCount, i
     readBlock(startIndex2, blockSize2, blockSize1);
 
     fifo_.finishedRead(blockSize1 + blockSize2);
+
+    // METER THE RAW INPUT (Pre-Mute, Pre-DSP)
+    const int channelsToMeter = std::min(channelCount, 8);
+    const float* meterChannels[8] = {};
+    for (int ch = 0; ch < channelsToMeter; ++ch) {
+        meterChannels[ch] = outputChannels[ch];
+    }
+    meterEngine_.process(meterChannels, channelsToMeter, numSamples);
+
+    // APPLY MUTE (Zero out before DSP so tails can decay)
+    if (isMuted) {
+        for (int ch = 0; ch < channelCount; ++ch) {
+            if (outputChannels[ch]) {
+                std::memset(outputChannels[ch], 0, static_cast<std::size_t>(numSamples) * sizeof(float));
+            }
+        }
+    }
 
     // Calculate peak before DSP
     float preDspPeak = 0.0f;
@@ -169,15 +180,30 @@ void MicrophoneSource::process(float* const* outputChannels, int channelCount, i
             "[MIC PROCESS] ready=%d toRead=%d muted=%d preDspPeak=%.6f postDspPeak=%.6f gain=%.4f",
             ready, toRead, static_cast<int>(isMuted), preDspPeak, postDspPeak, gain_.load(std::memory_order_relaxed));
         melodymeet::RtLogger::get().log(buf);
-        std::cout << "[MIC PEAK] " << postDspPeak << std::endl;
     }
-
-    const int channelsToMeter = std::min(channelCount, 8);
-    const float* meterChannels[8] = {};
-    for (int ch = 0; ch < channelsToMeter; ++ch) {
-        meterChannels[ch] = outputChannels[ch];
+    
+    // INSTRUMENTATION: Calculate RMS Before DSP
+    float preDspRms = 0.0f;
+    // We don't have the pre-DSP buffer anymore, but preDspPeak is fine.
+    
+    // INSTRUMENTATION: Calculate RMS After DSP
+    float postDspRms = 0.0f;
+    for (int ch = 0; ch < channelCount; ++ch) {
+        if (outputChannels[ch]) {
+            float sumSq = 0.0f;
+            for (int s = 0; s < numSamples; ++s) {
+                sumSq += outputChannels[ch][s] * outputChannels[ch][s];
+            }
+            postDspRms = std::max(postDspRms, std::sqrt(sumSq / numSamples));
+        }
     }
-    meterEngine_.process(meterChannels, channelsToMeter, numSamples);
+    
+    char buf[256];
+    if (traceId % 100 == 0) {
+        std::snprintf(buf, sizeof(buf), "[INSTRUMENTATION] MIC PROCESS addr=%p enabled=%d muted=%d fifoRead=%d postDspRMS=%.6f", 
+            this, enabled_.load(std::memory_order_relaxed) ? 1 : 0, isMuted ? 1 : 0, toRead, postDspRms);
+        melodymeet::RtLogger::get().log(buf);
+    }
 }
 
 void MicrophoneSource::reset() noexcept {
@@ -208,7 +234,6 @@ int MicrophoneSource::getChannelCount() const noexcept {
 }
 
 void MicrophoneSource::pushAudio(const float* const* inputChannels, int numInputChannels, int numSamples) noexcept {
-    std::cout << "[MIC RECEIVED AUDIO]" << this << std::endl;
     if (!prepared_ || !enabled_.load(std::memory_order_relaxed)
         || numSamples <= 0 || inputChannels == nullptr)
     {
@@ -232,6 +257,12 @@ void MicrophoneSource::pushAudio(const float* const* inputChannels, int numInput
         std::snprintf(buf, sizeof(buf), "[MIC FIFO] available=%d toWrite=%d freeSpace=%d",
             fifo_.getNumReady(), toWrite, freeSpace);
         melodymeet::RtLogger::get().log(buf);
+    }
+    
+    if (traceId % 100 == 0) {
+        char buf2[256];
+        std::snprintf(buf2, sizeof(buf2), "[INSTRUMENTATION] MIC PUSH addr=%p fifoWrite=%d", this, toWrite);
+        melodymeet::RtLogger::get().log(buf2);
     }
 
     int startIndex1, blockSize1, startIndex2, blockSize2;
@@ -262,7 +293,6 @@ void MicrophoneSource::pushAudio(const float* const* inputChannels, int numInput
 
 void MicrophoneSource::setEnabled(bool enabled) noexcept {
     enabled_.store(enabled, std::memory_order_relaxed);
-    if (!enabled) reset();
     version_.fetch_add(1, std::memory_order_relaxed);
 }
 

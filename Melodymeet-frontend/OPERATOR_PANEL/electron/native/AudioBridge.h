@@ -258,6 +258,9 @@ public:
         float micRmsR;
         std::array<float, 5> rjMicPeak{};
         std::array<float, 5> rjMicRms{};
+        std::array<bool, 5> rjMicConnected{};
+        std::array<bool, 5> rjMicEnabled{};
+        std::array<bool, 5> rjMicClipped{};
     };
     
     MeterSnapshot getMeterSnapshot() const;

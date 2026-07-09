@@ -105,6 +105,7 @@ interface RjSetupModalProps {
   onToggleMicMute: (id: string) => void;
   onRemoveMic: (id: string) => void;
   onUpdateMicDevice: (id: string, deviceName: string) => void;
+  onUpdateMicDSP: (id: string, dsp: any) => void;
   onAddMic: (name: string) => Promise<boolean> | boolean;
   availableDevices?: string[];
   nowPlaying: RjNowPlayingBridge;
@@ -181,6 +182,20 @@ function legacyToMicChannels(allMics: LegacyMic[], availableDevices?: string[]):
       soloed: false,
       vuL: mic.volume ?? 0,
       vuR: mic.volume ?? 0,
+      compEnabled: mic.compEnabled !== undefined ? mic.compEnabled : true,
+      compThreshold: mic.compThreshold ?? -15,
+      compRatio: mic.compRatio ?? 3,
+      compAttack: mic.compAttack ?? 10,
+      compRelease: mic.compRelease ?? 100,
+      compMakeupGain: mic.compMakeupGain ?? 2,
+      limEnabled: mic.limEnabled !== undefined ? mic.limEnabled : true,
+      limThreshold: mic.limThreshold ?? -1.0,
+      limRelease: mic.limRelease ?? 80,
+      connected: mic.connected,
+      clipped: mic.clipped,
+      rms: mic.rms,
+      noiseFloor: mic.noiseFloor,
+      signalPresent: mic.signalPresent,
     };
   });
 }
@@ -265,6 +280,7 @@ export const RjSetupModal: React.FC<RjSetupModalProps> = ({
   onToggleMicMute,
   onRemoveMic,
   onUpdateMicDevice,
+  onUpdateMicDSP,
   onAddMic,
   availableDevices,
   nowPlaying,
@@ -324,6 +340,48 @@ export const RjSetupModal: React.FC<RjSetupModalProps> = ({
           eqMid: percentToEqDb(mid),
           eqTreble: percentToEqDb(hi),
         });
+      }
+
+      // ── COMPRESSOR UPDATES ──
+      if (
+        typeof changes.compEnabled === 'boolean' ||
+        typeof changes.compThreshold === 'number' ||
+        typeof changes.compRatio === 'number' ||
+        typeof changes.compAttack === 'number' ||
+        typeof changes.compRelease === 'number' ||
+        typeof changes.compMakeupGain === 'number'
+      ) {
+        const current = micChannels.find((channel) => channel.id === id);
+        const enabled = typeof changes.compEnabled === 'boolean' ? changes.compEnabled : current?.compEnabled ?? true;
+        const threshold = typeof changes.compThreshold === 'number' ? changes.compThreshold : current?.compThreshold ?? -15;
+        const ratio = typeof changes.compRatio === 'number' ? changes.compRatio : current?.compRatio ?? 3;
+        const attack = typeof changes.compAttack === 'number' ? changes.compAttack : current?.compAttack ?? 10;
+        const release = typeof changes.compRelease === 'number' ? changes.compRelease : current?.compRelease ?? 100;
+        const makeupGain = typeof changes.compMakeupGain === 'number' ? changes.compMakeupGain : current?.compMakeupGain ?? 2;
+
+        void audio.setMicrophoneCompressor(micIndex, {
+          enabled, threshold, ratio, attack, release, makeup: makeupGain
+        });
+        
+        onUpdateMicDSP(`mic${id}`, { compEnabled: enabled, compThreshold: threshold, compRatio: ratio, compAttack: attack, compRelease: release, compMakeupGain: makeupGain });
+      }
+
+      // ── LIMITER UPDATES ──
+      if (
+        typeof changes.limEnabled === 'boolean' ||
+        typeof changes.limThreshold === 'number' ||
+        typeof changes.limRelease === 'number'
+      ) {
+        const current = micChannels.find((channel) => channel.id === id);
+        const enabled = typeof changes.limEnabled === 'boolean' ? changes.limEnabled : current?.limEnabled ?? true;
+        const threshold = typeof changes.limThreshold === 'number' ? changes.limThreshold : current?.limThreshold ?? -1.0;
+        const release = typeof changes.limRelease === 'number' ? changes.limRelease : current?.limRelease ?? 80;
+
+        void audio.setMicrophoneLimiter(micIndex, {
+          enabled, threshold, release
+        });
+        
+        onUpdateMicDSP(`mic${id}`, { limEnabled: enabled, limThreshold: threshold, limRelease: release });
       }
     },
     [micsToUse, micChannels, onToggleMicMute, onToggleMicActive, onUpdateMicDevice],
@@ -656,6 +714,12 @@ export const RjSetupModal: React.FC<RjSetupModalProps> = ({
                     colors={colors}
                     onMasterVolumeChange={(valueDb) => {
                       void audio.setMasterGain(dbToLinearGain(valueDb));
+                    }}
+                    onCompressorChange={(settings) => {
+                      void audio.setCompressor(settings);
+                    }}
+                    onLimiterChange={(settings) => {
+                      void audio.setLimiter(settings);
                     }}
                   />
                 </View>

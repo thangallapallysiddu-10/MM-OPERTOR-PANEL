@@ -95,23 +95,47 @@ export const useMicSystem = (addNotification: (type: "request" | "system" | "ale
 
     // Subscribe to meter updates via SDK event bus
     const handleMetersUpdate = (data: any) => {
-      const payloadMics = data.mics || {};
-      const nativeMicPeak = Math.max(
-        Number(data.micPeakL ?? 0),
-        Number(data.micPeakR ?? 0),
-      );
+      // DEBUG: Verify schema mismatch as requested
+      // console.log("[MetersUpdate] Raw payload from Native Engine:", data);
+
       const { rjStudio } = useAppStore.getState();
-      const nativeMicId = rjStudio.rjMics.find((m: any) => m.isActive)?.id ?? rjStudio.rjMics[0]?.id;
       let changed = false;
 
       const newMics = rjStudio.rjMics.map(m => {
-        const payloadPeak = payloadMics[m.id]?.peak?.[0];
-        const level = payloadPeak != null
-          ? Math.floor(Number(payloadPeak) * 100)
-          : (m.id === nativeMicId ? Math.floor(nativeMicPeak * 100) : 0);
-        if (m.volume !== level) {
+        // Native indices map mic1 -> 0, mic2 -> 1, etc.
+        const idx = parseInt(m.id.replace('mic', '')) - 1;
+        if (isNaN(idx) || idx < 0 || idx > 4) return m;
+
+        const payloadPeak = data.rjMicPeak?.[idx] ?? 0;
+        const payloadRms = data.rjMicRms?.[idx] ?? 0;
+        const payloadConnected = data.rjMicConnected?.[idx] ?? false;
+        const payloadClipped = data.rjMicClipped?.[idx] ?? false;
+
+        const level = Math.floor(Number(payloadPeak) * 100);
+
+        // Convert raw RMS decimal to dB noise floor (approximate for UI)
+        let noiseFloorStr = "-";
+        if (payloadRms > 0) {
+          const db = 20 * Math.log10(payloadRms);
+          if (db > -100) noiseFloorStr = `${db.toFixed(1)} dB`;
+        }
+
+        if (
+          m.volume !== level ||
+          m.connected !== payloadConnected ||
+          m.clipped !== payloadClipped ||
+          m.rms !== payloadRms ||
+          m.noiseFloor !== noiseFloorStr
+        ) {
           changed = true;
-          return { ...m, volume: level };
+          return {
+            ...m,
+            volume: level,
+            connected: payloadConnected,
+            clipped: payloadClipped,
+            rms: payloadRms,
+            noiseFloor: noiseFloorStr
+          };
         }
         return m;
       });
@@ -166,102 +190,127 @@ export const useMicSystem = (addNotification: (type: "request" | "system" | "ale
 
   const toggleMicActive = async (micId: string) => {
     const mic = allMics.find(m => m.id === micId);
-    const nextActive = mic ? !mic.isActive : true;
-    const nativeIdx = getNativeMicIndex(micId);
-    const inputDev = mic ? (mic as any).input || '' : '';
+    if (!mic) return;
 
-    console.log('[MIC STEP 1] toggleMicActive called', { micId, nextActive });
-    console.log('[MIC STEP 2] mic object:', mic);
-    console.log('[MIC STEP 3] inputDevice:', inputDev);
-    console.log('[MIC STEP 4] nativeIndex:', nativeIdx);
+    const previousActive = mic.isActive;
+    const nextActive = !previousActive;
+    const nativeIdx = getNativeMicIndex(micId);
+    const inputDev = (mic as any).input || '';
+
+    // 1. OPTIMISTIC UI UPDATE
+    setMics((prev) => prev.map(m => m.id === micId ? { ...m, isActive: nextActive } : m));
+
+    let nativeCallSucceeded = false;
 
     try {
       if (nextActive) {
-        console.log('[MIC STEP 5] Calling audio.enableMicrophoneByIndex', nativeIdx, inputDev);
-        const result = await audio.enableMicrophoneByIndex(nativeIdx, inputDev);
-        console.log('[MIC STEP 6] enableMicrophoneByIndex returned:', result);
+        // PREVENT WASAPI CRASH: Do not send invalid default strings like "Input 3" to the engine.
+        // Doing so will crash the global hardware lock and silence all microphones.
+        let safeInputDev = inputDev;
+        
+        // Use the globally active device if one is already running (to prevent hardware restarts).
+        // Otherwise, pick the first valid device from the dropdown list.
+        const globalActiveMic = allMics.find(m => m.isActive && m.id !== micId && m.input);
+        const globalActiveDevice = globalActiveMic ? globalActiveMic.input : '';
+
+        if (globalActiveDevice && availableDevices.includes(globalActiveDevice)) {
+           safeInputDev = globalActiveDevice;
+        } else if (!availableDevices.includes(inputDev)) {
+           safeInputDev = availableDevices.length > 0 ? availableDevices[0] : '';
+        }
+
+        await audio.enableMicrophoneByIndex(nativeIdx, safeInputDev);
+        
+        if (safeInputDev !== inputDev) {
+            updateMicDevice(micId, safeInputDev);
+        }
+
+        const startMuted = mic ? mic.isMuted : true;
+        await audio.muteMicrophoneByIndex(nativeIdx, startMuted).catch(() => {});
       } else {
-        console.log('[MIC STEP 5] Calling audio.disableMicrophoneByIndex', nativeIdx);
-        const result = await audio.disableMicrophoneByIndex(nativeIdx);
-        console.log('[MIC STEP 6] disableMicrophoneByIndex returned:', result);
+        await audio.disableMicrophoneByIndex(nativeIdx);
       }
+      nativeCallSucceeded = true;
     } catch (err) {
       console.error('[MIC FAILED] Audio SDK call threw:', err);
+      // Rollback optimistic update
+      setMics((prev) => prev.map(m => m.id === micId ? { ...m, isActive: previousActive } : m));
+      addNotification("system", `Failed to change mic state: ${(err as Error).message}`);
+      return;
     }
 
     const sid = rjBackend.getStudioId();
-    if (rjBackend.isEnabled() && sid) {
+    if (rjBackend.isEnabled() && sid && nativeCallSucceeded) {
       try {
         const studio = await RjApi.patchMic(sid, { micId, isActive: nextActive });
-        applyStudioRecordToStore(studio);
-        if (mic) {
-          addNotification("system", `${mic.name} ${nextActive ? 'joined the stage' : 'left the stage'}!`);
+        // Prevent stale state overwrites: manually fix the isActive state on the returned object before applying
+        if (studio && studio.rjMics) {
+          const serverMic = studio.rjMics.find((m: any) => m.id === micId);
+          if (serverMic && serverMic.isActive !== nextActive) {
+            serverMic.isActive = nextActive; // Force correct state
+          }
         }
-        return;
-      } catch {
-        /* local */
+        applyStudioRecordToStore(studio);
+        addNotification("system", `${mic.name} ${nextActive ? 'joined the stage' : 'left the stage'}!`);
+      } catch (err) {
+        console.error('[MIC FAILED] Backend API call threw:', err);
+        // Rollback optimistic update on API failure to keep everything in sync
+        if (nextActive) {
+          await audio.disableMicrophoneByIndex(nativeIdx).catch(() => {});
+        } else {
+          await audio.enableMicrophoneByIndex(nativeIdx, inputDev).catch(() => {});
+        }
+        setMics((prev) => prev.map(m => m.id === micId ? { ...m, isActive: previousActive } : m));
+        addNotification("system", `Backend failed to save mic state. Reverted.`);
       }
     }
-
-    setMics((prev) => {
-      const exists = prev.some(m => m.id === micId);
-      if (exists) {
-        return prev.map(m => m.id === micId ? { ...m, isActive: !m.isActive } : m);
-      } else {
-        const idx = parseInt(micId.replace('mic', '')) - 1 || 0;
-        const baseLabels = ['RJ Mic 1', 'Guest Mic 1', 'Guest Mic 2', 'Guest Mic 3', 'Call-in Mic 1'];
-        const baseNames = ['Sejal', 'Leo', 'Riya', 'Arjun', 'Live Caller'];
-        return [...prev, {
-          id: micId,
-          name: baseNames[idx] || 'Guest',
-          label: baseLabels[idx] || 'Guest Mic',
-          isActive: nextActive,
-          isMuted: true,
-          volume: 0,
-        }];
-      }
-    });
   };
 
   const toggleMicMute = async (micId: string) => {
     const mic = allMics.find(m => m.id === micId);
-    const nextMuted = mic ? !mic.isMuted : true;
+    if (!mic) return;
 
-    // Route through SDK
-    console.log('[MIC MUTE]', { micId, nextMuted, nativeIdx: getNativeMicIndex(micId) });
-    await audio.muteMicrophoneByIndex(getNativeMicIndex(micId), nextMuted).catch((err) => {
+    const previousMuted = mic.isMuted;
+    const nextMuted = !previousMuted;
+    const nativeIdx = getNativeMicIndex(micId);
+
+    // 1. OPTIMISTIC UI UPDATE
+    setMics((prev) => prev.map(m => m.id === micId ? { ...m, isMuted: nextMuted } : m));
+
+    let nativeCallSucceeded = false;
+
+    try {
+      console.log('[MIC MUTE]', { micId, nextMuted, nativeIdx });
+      await audio.muteMicrophoneByIndex(nativeIdx, nextMuted);
+      nativeCallSucceeded = true;
+    } catch (err) {
       console.error('[MIC MUTE ERROR]', err);
-    });
-
-    const sid = rjBackend.getStudioId();
-    if (rjBackend.isEnabled() && sid) {
-      try {
-        const studio = await RjApi.patchMic(sid, { micId, isMuted: nextMuted });
-        applyStudioRecordToStore(studio);
-        return;
-      } catch {
-        /* local */
-      }
+      // Rollback optimistic update
+      setMics((prev) => prev.map(m => m.id === micId ? { ...m, isMuted: previousMuted } : m));
+      addNotification("system", `Failed to change mute state: ${(err as Error).message}`);
+      return;
     }
 
-    setMics((prev) => {
-      const exists = prev.some(m => m.id === micId);
-      if (exists) {
-        return prev.map(m => m.id === micId ? { ...m, isMuted: nextMuted } : m);
-      } else {
-        const idx = parseInt(micId.replace('mic', '')) - 1 || 0;
-        const baseLabels = ['RJ Mic 1', 'Guest Mic 1', 'Guest Mic 2', 'Guest Mic 3', 'Call-in Mic 1'];
-        const baseNames = ['Sejal', 'Leo', 'Riya', 'Arjun', 'Live Caller'];
-        return [...prev, {
-          id: micId,
-          name: baseNames[idx] || 'Guest',
-          label: baseLabels[idx] || 'Guest Mic',
-          isActive: false,
-          isMuted: nextMuted,
-          volume: 0,
-        }];
+    const sid = rjBackend.getStudioId();
+    if (rjBackend.isEnabled() && sid && nativeCallSucceeded) {
+      try {
+        const studio = await RjApi.patchMic(sid, { micId, isMuted: nextMuted });
+        // Prevent stale state overwrites: manually fix the isMuted state on the returned object before applying
+        if (studio && studio.rjMics) {
+          const serverMic = studio.rjMics.find((m: any) => m.id === micId);
+          if (serverMic && serverMic.isMuted !== nextMuted) {
+            serverMic.isMuted = nextMuted; // Force correct state
+          }
+        }
+        applyStudioRecordToStore(studio);
+      } catch (err) {
+        console.error('[MIC MUTE API ERROR]', err);
+        // Rollback optimistic update on API failure to keep everything in sync
+        await audio.muteMicrophoneByIndex(nativeIdx, previousMuted).catch(() => {});
+        setMics((prev) => prev.map(m => m.id === micId ? { ...m, isMuted: previousMuted } : m));
+        addNotification("system", `Backend failed to save mute state. Reverted.`);
       }
-    });
+    }
   };
 
 

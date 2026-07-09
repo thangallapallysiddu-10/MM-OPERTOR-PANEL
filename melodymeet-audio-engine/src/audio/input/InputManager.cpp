@@ -49,6 +49,14 @@ std::string InputManager::getCurrentInputDevice() const {
     return deviceManager_.getCurrentInputDevice();
 }
 
+bool InputManager::hasActiveInputDevice() const noexcept {
+    // Relying on JUCE's getActiveInputChannels() fails on WASAPI because 
+    // it often reports 0 active channels even while streaming successfully.
+    // The most foolproof check is simply whether the engine has successfully 
+    // transitioned into the capturing state for this device.
+    return isCapturing();
+}
+
 bool InputManager::setCurrentInputDevice(const std::string& deviceName) {
     std::cout << "[SET INPUT DEVICE] " << deviceName << std::endl;
     if (deviceName.empty()) return false;
@@ -94,18 +102,6 @@ void InputManager::audioDeviceIOCallbackWithContext(
     if (!callbackSeen) {
         callbackSeen = true;
         RtLogger::get().log("[CALLBACK ENTERED]");
-    }
-
-    static int counter = 0;
-    if (++counter % 100 == 0) {
-        std::cout << "[CALLBACK] numInputChannels=" << numInputChannels << std::endl;
-    }
-
-    if (numInputChannels == 0) {
-        static int zeroCounter = 0;
-        if (++zeroCounter % 100 == 0) {
-            std::cout << "[CALLBACK] numInputChannels==0" << std::endl;
-        }
     }
 
     // Fast path out if not capturing or no input

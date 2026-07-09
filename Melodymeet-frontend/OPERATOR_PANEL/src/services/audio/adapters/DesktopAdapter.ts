@@ -107,9 +107,25 @@ export class DesktopAdapter implements IAudioAdapter {
 
   getAvailableInputDevices(): Promise<string[]> { return this.invoke('getAvailableInputDevices'); }
   enableMicrophone(input: string): Promise<void> { return this.invoke('enableMicrophone', input); }
-  enableMicrophoneByIndex(micIndex: number, input: string): Promise<void> {
-    console.log('[DESKTOP ADAPTER] enableMicrophoneByIndex', { micIndex, input });
-    return this.invoke('enableMicrophoneByIndex', micIndex, input);
+  async enableMicrophoneByIndex(micIndex: number, input: string): Promise<void> {
+    console.log('[DESKTOP ADAPTER] enableMicrophoneByIndex called with:', { micIndex, input });
+    let safeInput = input;
+    try {
+      const devices = await this.getAvailableInputDevices();
+      if (!input || !devices.includes(input)) {
+        console.warn(`[DESKTOP ADAPTER] Blocked invalid device "${input}". Falling back to available device.`);
+        if (devices.length > 0) {
+            safeInput = devices[0];
+            console.log(`[DESKTOP ADAPTER] Substituted with safe device: "${safeInput}"`);
+        } else {
+            console.error('[DESKTOP ADAPTER] No input devices available. Aborting enableMicrophone.');
+            return; // Abort call to engine to prevent driver crash
+        }
+      }
+    } catch (e) {
+      console.warn('[DESKTOP ADAPTER] Could not validate input device:', e);
+    }
+    return this.invoke('enableMicrophoneByIndex', micIndex, safeInput);
   }
   disableMicrophone(): Promise<void> { return this.invoke('disableMicrophone'); }
   disableMicrophoneByIndex(micIndex: number): Promise<void> {

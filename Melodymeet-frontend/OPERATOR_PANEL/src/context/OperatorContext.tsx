@@ -180,6 +180,9 @@ export const OperatorProvider = ({ children }: { children: ReactNode }) => {
 
   // ── Stop Live ──────────────────────────────────────────────────────────────
   const stopLiveWithId = async (streamId: number | string) => {
+    // Optimistic UI update to prevent double-clicks and "blinking"
+    setIsLive(false);
+
     try {
       const token = await StorageService.getSessionToken();
       if (token) {
@@ -189,18 +192,27 @@ export const OperatorProvider = ({ children }: { children: ReactNode }) => {
           /* continue */
         }
       }
-      await StreamApi.stopLive(streamId);
-      setIsLive(false);
+      
+      try {
+        await StreamApi.stopLive(streamId);
+      } catch (apiErr) {
+        console.warn('StreamApi.stopLive failed, proceeding with local stop:', apiErr);
+      }
+      
       setActiveStreamId(null);
       setListeners(0);
-      useAppStore.getState().updateRjStudioState({ chatMessages: [], rjNotifications: [] });
-      useAppStore.getState().updateRjStudioState({
+      const state = useAppStore.getState();
+      state.updateRjStudioState({ chatMessages: [], rjNotifications: [] });
+      state.updateRjStudioState({
         activeListeners: 0,
-        rjStats: { ...useAppStore.getState().rjStudio.rjStats, listeners: 0 }
+        rjStats: { ...state.rjStudio.rjStats, listeners: 0 },
+        rjMics: state.rjStudio.rjMics.map((m: any) => ({ ...m, isActive: false }))
       });
       streamSocket.endStream(streamId);
     } catch (err: any) {
-      Alert.alert('Stop Live Failed', err.message || 'Could not stop stream');
+      console.error('Stop Live caught unhandled error:', err);
+      // We no longer revert setIsLive(true) here because we want to guarantee 
+      // the local stream state shuts down even if the API throws an unexpected error.
     }
   };
 
@@ -212,9 +224,11 @@ export const OperatorProvider = ({ children }: { children: ReactNode }) => {
       } else {
         setIsLive(false);
         setListeners(0);
-        useAppStore.getState().updateRjStudioState({
+        const state = useAppStore.getState();
+        state.updateRjStudioState({
           activeListeners: 0,
-          rjStats: { ...useAppStore.getState().rjStudio.rjStats, listeners: 0 }
+          rjStats: { ...state.rjStudio.rjStats, listeners: 0 },
+          rjMics: state.rjStudio.rjMics.map((m: any) => ({ ...m, isActive: false }))
         });
       }
     } else {

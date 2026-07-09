@@ -56,6 +56,27 @@ const getNativeMicIndex = (micId?: string) => {
 };
 
 const RJStudio = ({ navigation }: any) => {
+  const { profileDarkMode, setProfileDarkMode, rjStudio } = useAppStore();
+
+  const startLiveMic = () => {
+    const selectedMic = rjStudio.rjMics.find((mic: any) => mic.isActive) ?? rjStudio.rjMics[0];
+    const nativeIdx = getNativeMicIndex((selectedMic as any)?.id);
+    
+    // Force the selected mic to become active if it isn't
+    if (!selectedMic.isActive) {
+      useAppStore.getState().updateRjStudioState({
+        rjMics: useAppStore.getState().rjStudio.rjMics.map((m: any) => m.id === selectedMic.id ? { ...m, isActive: true } : m)
+      });
+    }
+
+    void audio.enableMicrophoneByIndex(nativeIdx, (selectedMic as any)?.input || '')
+      .then(() => {
+        // C++ backend defaults to UNMUTED when enabled. We must force it to match the UI state.
+        void audio.muteMicrophoneByIndex(nativeIdx, !!selectedMic.isMuted).catch(() => {});
+      })
+      .catch((err) => { console.error('[GO LIVE] enableMic error:', err); });
+  };
+
   const { isLive, toggleLive, setCurrentTrack, activeChannel, setActiveChannel, activeStreamId, streams, listeners } = useOperator();
   const studioId = activeStreamId ?? streams[0]?.id ?? null;
   const { backendOnline, ready: rjSyncReady } = useRjSync(studioId, isLive);
@@ -67,7 +88,6 @@ const RJStudio = ({ navigation }: any) => {
   const { width: screenWidth } = useWindowDimensions();
   const isMobile = screenWidth < 768;
  
-  const { profileDarkMode, setProfileDarkMode, rjStudio } = useAppStore();
   const isDarkMode = profileDarkMode;
   const colors = isDarkMode ? darkTheme : lightTheme;
   const setIsDarkMode = setProfileDarkMode;
@@ -129,8 +149,7 @@ const RJStudio = ({ navigation }: any) => {
     setShowScheduleModal(false);
     setShowRjSetupModal(true);
     if (!isLive) {
-      const selectedMic = rjStudio.rjMics.find((mic: any) => mic.isActive) ?? rjStudio.rjMics[0];
-      void audio.enableMicrophoneByIndex(getNativeMicIndex((selectedMic as any)?.id), (selectedMic as any)?.input || '').catch((err) => { console.error('[SCHEDULE] enableMic error:', err); });
+      startLiveMic();
       toggleLive();
     }
   };
@@ -159,8 +178,7 @@ const RJStudio = ({ navigation }: any) => {
         localStorage.removeItem('autoStartLive');
         setShowRjSetupModal(true);
         if (!isLive) {
-          const selectedMic = rjStudio.rjMics.find((mic: any) => mic.isActive) ?? rjStudio.rjMics[0];
-          void audio.enableMicrophoneByIndex(getNativeMicIndex((selectedMic as any)?.id), (selectedMic as any)?.input || '').catch((err) => { console.error('[AUTOSTART] enableMic error:', err); });
+          startLiveMic();
           toggleLive();
         }
       }
@@ -277,14 +295,15 @@ const RJStudio = ({ navigation }: any) => {
   const handleToggleLiveFromModal = () => {
     if (isLive) {
       const selectedMic = rjStudio.rjMics.find((mic: any) => mic.isActive) ?? rjStudio.rjMics[0];
-      void audio.disableMicrophoneByIndex(getNativeMicIndex((selectedMic as any)?.id)).catch((err) => { console.error('[GO LIVE] disableMic error:', err); });
+      if (selectedMic.isActive) {
+        void audio.disableMicrophoneByIndex(getNativeMicIndex((selectedMic as any)?.id)).catch((err) => { console.error('[GO LIVE] disableMic error:', err); });
+      }
       toggleLive();
       setShowRjSetupModal(false);
     } else {
-      const selectedMic = rjStudio.rjMics.find((mic: any) => mic.isActive) ?? rjStudio.rjMics[0];
-      console.log('[GO LIVE] Enabling mic', { micId: (selectedMic as any)?.id, input: (selectedMic as any)?.input, nativeIdx: getNativeMicIndex((selectedMic as any)?.id) });
-      void audio.enableMicrophoneByIndex(getNativeMicIndex((selectedMic as any)?.id), (selectedMic as any)?.input || '').catch((err) => { console.error('[GO LIVE] enableMic error:', err); });
+      startLiveMic();
       toggleLive();
+      setShowRjSetupModal(false);
     }
   };
 
@@ -704,6 +723,7 @@ const RJStudio = ({ navigation }: any) => {
         onToggleMicMute={micSystem.toggleMicMute}
         onRemoveMic={micSystem.removeExtraMic}
         onUpdateMicDevice={micSystem.updateMicDevice}
+        onUpdateMicDSP={micSystem.updateMicDSP}
         onAddMic={async (name: string) => {
           micSystem.setNewMicName(name);
           return micSystem.addNewMic();

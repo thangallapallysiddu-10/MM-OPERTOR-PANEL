@@ -29,6 +29,7 @@ public:
     bool isInitialized() const noexcept;
     std::string getCurrentDeviceName() const;
     std::string getCurrentInputDevice() const;
+    bool hasActiveInputChannels() const noexcept;
     void refreshInputDevices();
     bool setCurrentInputDevice(const std::string& deviceName);
     double getSampleRate() const noexcept;

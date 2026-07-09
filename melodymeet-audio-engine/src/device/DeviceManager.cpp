@@ -23,14 +23,20 @@ bool DeviceManager::initialize()
     // audioDeviceManager will open the device stream with 0 inputs. When we later
     // call setAudioDeviceSetup(..., false), it updates the setup object but DOES NOT
     // restart the stream, meaning numInputChannels will forever be 0 in the callback.
-    const auto error = audioDeviceManager_.initialise(
+    auto error = audioDeviceManager_.initialise(
         256,                   // numInputChannelsNeeded
         defaultOutputChannels,
         nullptr,
         true);
 
-    if (error.isNotEmpty())
-        throw std::runtime_error("DeviceManager failed to open audio device: " + error.toStdString());
+    if (error.isNotEmpty()) {
+        std::cout << "[WARNING] DeviceManager failed 256 channels: " << error.toStdString() << " - Falling back to default stereo inputs." << std::endl;
+        error = audioDeviceManager_.initialiseWithDefaultDevices(2, defaultOutputChannels);
+        if (error.isNotEmpty()) {
+            std::cerr << "[FATAL] DeviceManager completely failed to open audio device: " << error.toStdString() << std::endl;
+            throw std::runtime_error("DeviceManager failed to open audio device: " + error.toStdString());
+        }
+    }
 
     initialized_ = true;
     return true;
@@ -77,6 +83,17 @@ std::string DeviceManager::getCurrentInputDevice() const
 
     auto setup = audioDeviceManager_.getAudioDeviceSetup();
     return setup.inputDeviceName.toStdString();
+}
+
+bool DeviceManager::hasActiveInputChannels() const noexcept
+{
+    if (!initialized_)
+        return false;
+
+    if (auto* device = audioDeviceManager_.getCurrentAudioDevice())
+        return device->getActiveInputChannels().countNumberOfSetBits() > 0;
+
+    return false;
 }
 
 void DeviceManager::refreshInputDevices()

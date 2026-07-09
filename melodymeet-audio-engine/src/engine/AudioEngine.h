@@ -162,6 +162,10 @@ public:
     LimiterSettings getLimiter() const;
     void setMicrophoneLimiter(int micIndex, const LimiterSettings& settings);
 
+    int getHardwareInputChannels() const noexcept {
+        return lastInputChannelsReceived_.load(std::memory_order_relaxed);
+    }
+
     void resetDSP();
     DSPSnapshot getDSPSnapshot() const;
 
@@ -175,6 +179,7 @@ private:
     AudioCallback audioCallback_;
     
     std::atomic<uint64_t> dspVersion_{0};
+    std::atomic<int> lastInputChannelsReceived_{0};
     bool initialized_ = false;
 };
 

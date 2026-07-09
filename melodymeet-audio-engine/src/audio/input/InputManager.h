@@ -46,6 +46,7 @@ public:
     void refreshDevices();
     std::vector<std::string> getAvailableInputDevices() const;
     std::string getCurrentInputDevice() const;
+    bool hasActiveInputDevice() const noexcept;
     bool setCurrentInputDevice(const std::string& deviceName);
 
     // --- Capture Control ---

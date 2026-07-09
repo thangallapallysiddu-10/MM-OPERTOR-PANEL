@@ -1001,12 +1001,21 @@ Napi::Value GetMeterSnapshot(const Napi::CallbackInfo& info)
 
         Napi::Array rjMicPeak = Napi::Array::New(env, snap.rjMicPeak.size());
         Napi::Array rjMicRms = Napi::Array::New(env, snap.rjMicRms.size());
+        Napi::Array rjMicConnected = Napi::Array::New(env, snap.rjMicConnected.size());
+        Napi::Array rjMicEnabled = Napi::Array::New(env, snap.rjMicEnabled.size());
+        Napi::Array rjMicClipped = Napi::Array::New(env, snap.rjMicClipped.size());
         for (size_t i = 0; i < snap.rjMicPeak.size(); ++i) {
             rjMicPeak.Set(i, Napi::Number::New(env, snap.rjMicPeak[i]));
             rjMicRms.Set(i, Napi::Number::New(env, snap.rjMicRms[i]));
+            rjMicConnected.Set(i, Napi::Boolean::New(env, snap.rjMicConnected[i]));
+            rjMicEnabled.Set(i, Napi::Boolean::New(env, snap.rjMicEnabled[i]));
+            rjMicClipped.Set(i, Napi::Boolean::New(env, snap.rjMicClipped[i]));
         }
         obj.Set("rjMicPeak", rjMicPeak);
         obj.Set("rjMicRms", rjMicRms);
+        obj.Set("rjMicConnected", rjMicConnected);
+        obj.Set("rjMicEnabled", rjMicEnabled);
+        obj.Set("rjMicClipped", rjMicClipped);
         return obj;
     } catch (const std::exception& e) {
         throw Napi::Error::New(env, e.what());

@@ -169,9 +169,23 @@ interface RjMicUser {
   isActive: boolean;
   isMuted: boolean;
   volume: number;
+  rms?: number;
+  connected?: boolean;
+  clipped?: boolean;
+  noiseFloor?: number;
+  signalPresent?: boolean;
   input?: string;
   isGuest?: boolean;
   guestId?: string;
+  compEnabled?: boolean;
+  compThreshold?: number;
+  compRatio?: number;
+  compAttack?: number;
+  compRelease?: number;
+  compMakeupGain?: number;
+  limEnabled?: boolean;
+  limThreshold?: number;
+  limRelease?: number;
 }
 
 interface LocalFilePlaybackState {

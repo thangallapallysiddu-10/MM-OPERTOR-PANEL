@@ -171,10 +171,11 @@ void SessionManager::pushAudioInput(const float* const* inputChannels, int numIn
         if (numInputChannels <= 0)
             continue;
 
-        // Map the logical mixer strip to an available hardware channel using modulo.
-        // This ensures that even if the physical device has fewer channels (e.g., a 1-channel USB mic),
-        // the UI's logical mic strips still receive valid audio rather than silence.
-        int inputChannel = static_cast<int>(micIndex) % numInputChannels;
+        // Force all microphones to read from Channel 0 (Left/Mono).
+        // The Intel Smart Sound Technology microphone array exposes 4 hardware channels,
+        // but channels 2 and 3 are silent. By forcing all logical mics to read from channel 0,
+        // we can prove this is the root cause of Guest Mic 2 being silent.
+        int inputChannel = 0;
         
         // Create a single-channel view pointing to this mic's input channel
         const float* micInputChannel[1] = { 

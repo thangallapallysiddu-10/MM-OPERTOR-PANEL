@@ -11,12 +11,14 @@ export interface FXParameters {
 }
 
 export interface CompressorSettings {
+  enabled?: boolean;
   threshold: number;
   ratio: number;
   attack: number;
   release: number;
   knee?: number;
   makeup?: number;
+  makeupGain?: number;
 }
 
 export interface LimiterSettings {

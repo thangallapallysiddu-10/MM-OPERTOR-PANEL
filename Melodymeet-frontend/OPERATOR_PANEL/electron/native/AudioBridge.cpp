@@ -1,4 +1,4 @@
-﻿#include "AudioBridge.h"
+#include "AudioBridge.h"
 
 #include <engine/AudioEngine.h>
 #include <engine/RJSession.h>
@@ -651,6 +651,12 @@ AudioBridge::MeterSnapshot AudioBridge::getMeterSnapshot() const
                     const auto& rms = mics[i]->getMeterEngine().getRMSMeter();
                     snap.rjMicPeak[i] = std::max(peak.getPeak(0), peak.getPeak(1));
                     snap.rjMicRms[i] = std::max(rms.getRMS(0), rms.getRMS(1));
+                    snap.rjMicConnected[i] = mics[i]->isActive() && engine_ && engine_->getInputManager().hasActiveInputDevice();
+                    snap.rjMicEnabled[i] = mics[i]->isEnabled();
+                    snap.rjMicClipped[i] = peak.hasClipped(0) || peak.hasClipped(1);
+                    
+                    const_cast<melodymeet::PeakMeter&>(peak).clearClip(0);
+                    const_cast<melodymeet::PeakMeter&>(peak).clearClip(1);
                 }
             }
         }
