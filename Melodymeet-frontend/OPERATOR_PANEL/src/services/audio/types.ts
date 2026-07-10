@@ -119,6 +119,7 @@ export interface IAudioAdapter {
   setMicrophoneGainByIndex(micIndex: number, gain: number): Promise<void>;
   muteMicrophone(muted: boolean): Promise<void>;
   muteMicrophoneByIndex(micIndex: number, muted: boolean): Promise<void>;
+  soloMicrophoneByIndex(micIndex: number, soloed: boolean): Promise<void>;
 
   startRecording(): Promise<void>;
   pauseRecording(): Promise<void>;

@@ -69,6 +69,7 @@ public:
     void disableMicrophone(int micIndex);
     void setMicrophoneGain(int micIndex, float gain);
     void muteMicrophone(int micIndex, bool muted);
+    void soloMicrophone(int micIndex, bool soloed);
 
     // --- Recording API ---
     struct RecordingSnapshot {

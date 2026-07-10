@@ -46,6 +46,9 @@ RJSession::RJSession(BufferPool& bufferPool)
     std::snprintf(buf, sizeof(buf), "[RJ INIT] Registered Deck A (id=%u) Deck B (id=%u)",
         static_cast<unsigned>(deckAId), static_cast<unsigned>(deckBId));
     melodymeet::RtLogger::get().log(buf);
+    
+    std::cout << "[RJ INIT CRITICAL] Deck A sourceId=" << deckAId 
+              << " Deck B sourceId=" << deckBId << std::endl;
 
     for (std::size_t i = 0; i < microphoneManager_.getMicrophones().size(); ++i) {
         const auto& mic = microphoneManager_.getMicrophones()[i];
@@ -54,6 +57,9 @@ RJSession::RJSession(BufferPool& bufferPool)
             std::snprintf(buf, sizeof(buf), "[RJ INIT] Registered Mic %zu (sourceId=%u)",
                 i, static_cast<unsigned>(micId));
             melodymeet::RtLogger::get().log(buf);
+            
+            std::cout << "[RJ INIT CRITICAL] Mic index=" << i 
+                      << " sourceId=" << micId << std::endl;
         }
     }
 }

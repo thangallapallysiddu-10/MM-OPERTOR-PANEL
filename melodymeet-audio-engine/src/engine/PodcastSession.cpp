@@ -1,7 +1,10 @@
 #include "PodcastSession.h"
 
+#include "../utilities/RtLogger.h"
+
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 
 namespace melodymeet
 {
@@ -12,19 +15,50 @@ namespace
 
 PodcastSession::PodcastSession(BufferPool& bufferPool)
 {
-    // Podcast is intentionally single-mic for the current production scope.
-    microphoneManager_.initialize(1);
+    // PHASE 1: Multi-mic activation for Podcast Studio (5 microphones)
+    microphoneManager_.initialize(5);
+
+    char buf[256];
+    std::snprintf(buf, sizeof(buf), "[PODCAST PHASE 1] Microphone Manager initialized with %zu microphones",
+        microphoneManager_.getMicrophones().size());
+    melodymeet::RtLogger::get().log(buf);
 
     previewPlayback_ = std::make_shared<DeckPlayer>(bufferPool);
 
     // Register sources to mixer
-    mixer_.registerSource(previewPlayback_);
+    const auto previewId = mixer_.registerSource(previewPlayback_);
+    std::snprintf(buf, sizeof(buf), "[PODCAST PHASE 1] Registered Preview Playback (sourceId=%u)",
+        static_cast<unsigned>(previewId));
+    melodymeet::RtLogger::get().log(buf);
+    
+    std::cout << "[PODCAST INIT CRITICAL] Preview sourceId=" << previewId << std::endl;
 
-    for (const auto& mic : microphoneManager_.getMicrophones()) {
+    for (std::size_t i = 0; i < microphoneManager_.getMicrophones().size(); ++i) {
+        const auto& mic = microphoneManager_.getMicrophones()[i];
         if (mic) {
-            mixer_.registerSource(mic);
+            const auto micId = mixer_.registerSource(mic);
+            std::snprintf(buf, sizeof(buf), "[PODCAST PHASE 1] Registered Mic %zu (sourceId=%u)",
+                i, static_cast<unsigned>(micId));
+            melodymeet::RtLogger::get().log(buf);
+            
+            std::cout << "[PODCAST INIT CRITICAL] Mic index=" << i 
+                      << " sourceId=" << micId << std::endl;
+            
+            // Validate DSP chain initialization
+            const auto& dspChain = mic->getChannelDSPChain();
+            std::snprintf(buf, sizeof(buf), "[PODCAST PHASE 1] Mic %zu DSP Chain Ready", i);
+            melodymeet::RtLogger::get().log(buf);
+            
+            // Validate meter engine initialization
+            const auto& meterEngine = mic->getMeterEngine();
+            std::snprintf(buf, sizeof(buf), "[PODCAST PHASE 1] Mic %zu Meter Engine Ready", i);
+            melodymeet::RtLogger::get().log(buf);
         }
     }
+
+    std::snprintf(buf, sizeof(buf), "[PODCAST PHASE 1] Mixer Total Source Count: %zu",
+        mixer_.getSourceCount());
+    melodymeet::RtLogger::get().log(buf);
 }
 
 void PodcastSession::prepare(double sampleRate, int bufferSize, int numOutputChannels)

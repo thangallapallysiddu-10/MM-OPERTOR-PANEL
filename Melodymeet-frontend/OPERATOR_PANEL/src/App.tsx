@@ -17,6 +17,9 @@ import { SessionTimer } from './components/SessionTimer';
 import Sidebar from './components/layout/Sidebar';
 import { useAppStore } from './store/useAppStore';
 
+// PHASE 4A: Load developer validation utilities for console testing
+import './utils/devValidation';
+
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 import RJStudio from './features/rj';
 const PodcastUpload = lazy(() => import('./features/podcast/PodcastUpload'));

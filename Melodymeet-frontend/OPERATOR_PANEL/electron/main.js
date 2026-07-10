@@ -176,6 +176,7 @@ function registerIpcHandlers() {
   });
 
   ipcMain.handle('audio:setMasterGain', async (e, gain) => {
+    console.log('[IPC MASTER GAIN]', gain);
     return invokeAudio('setMasterGain', gain);
   });
 
@@ -248,6 +249,18 @@ function registerIpcHandlers() {
       return result;
     } catch (err) {
       console.error('[IPC MUTE MIC] ERROR:', err);
+      throw err;
+    }
+  });
+
+  ipcMain.handle('audio:soloMicrophoneByIndex', async (e, micIndex, soloed) => {
+    console.log('[IPC SOLO MIC]', { micIndex, soloed });
+    try {
+      const result = invokeAudio('soloMicrophoneByIndex', micIndex, soloed);
+      console.log('[IPC SOLO MIC] result:', result);
+      return result;
+    } catch (err) {
+      console.error('[IPC SOLO MIC] ERROR:', err);
       throw err;
     }
   });

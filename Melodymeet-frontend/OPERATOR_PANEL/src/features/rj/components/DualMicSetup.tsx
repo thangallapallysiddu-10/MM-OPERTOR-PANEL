@@ -1,4 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
+import { useSoloManager } from '../../shared/hooks/useSoloManager';
+import { audio } from '../../../services/audio';
 
 const C = {
   bg: "#080c14",
@@ -366,7 +368,17 @@ function Fader({ value, onChange }: { value: number; onChange: (v: number) => vo
 }
 
 // ── CHANNEL STRIP ─────────────────────────────────────────────────────────────
-function ChannelStrip({ ch, onChange, availableDevices }: { ch: Channel; onChange: (c: ChannelChanges) => void; availableDevices?: string[] }) {
+function ChannelStrip({ 
+  ch, 
+  onChange, 
+  availableDevices, 
+  soloManager 
+}: { 
+  ch: Channel; 
+  onChange: (c: ChannelChanges) => void; 
+  availableDevices?: string[];
+  soloManager: ReturnType<typeof useSoloManager>;
+}) {
   const upd = (c: ChannelChanges) => onChange(c);
   const isMic1 = ch.id === 1;
   const bottomLabel = ch.label.replace(/^\d+\.\s*/, "");
@@ -591,7 +603,13 @@ function ChannelStrip({ ch, onChange, availableDevices }: { ch: Channel; onChang
       {/* SOLO / MUTE */}
       <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
         <button
-          onClick={() => upd({ soloed: !ch.soloed })}
+          onClick={() => {
+            console.log('[RJ SOLO BUTTON] Clicked for micIndex', ch.id - 1);
+            // RJ mics are: ch.id 1-5 → micIndex 0-4
+            soloManager.toggleSolo({ type: 'microphone', index: ch.id - 1 });
+            // Update UI state to reflect solo
+            upd({ soloed: !ch.soloed });
+          }}
           style={{
             flex: 1, padding: "9px 0", borderRadius: 6, cursor: "pointer",
             fontSize: 13, fontWeight: 600, fontFamily: "monospace",
@@ -621,8 +639,8 @@ function ChannelStrip({ ch, onChange, availableDevices }: { ch: Channel; onChang
           {/* Right scale — dashes pointing left toward fader, numbers right toward VU */}
           <ScaleCol side="right" />
           <div style={{ display: "flex", gap: 3, marginLeft: 2 }}>
-            <VuBars level={ch.muted ? 0 : ch.vuL} />
-            <VuBars level={ch.muted ? 0 : ch.vuR} />
+            <VuBars level={ch.muted ? 0 : (ch.volume ?? 0)} />
+            <VuBars level={ch.muted ? 0 : (ch.volume ?? 0)} />
           </div>
         </div>
 
@@ -653,6 +671,7 @@ type DualMicSetupProps = {
 
 export default function DualMicSetup({ channels: extChannels, onChannelChange: extChange, availableDevices }: DualMicSetupProps) {
   const [channels, setChannels] = useState<Channel[]>(extChannels || DEFAULT_CHANNELS);
+  const soloManager = useSoloManager();
 
   useEffect(() => {
     if (!extChannels) return;
@@ -675,6 +694,26 @@ export default function DualMicSetup({ channels: extChannels, onChannelChange: e
   const handleChange = useCallback((id: number, changes: ChannelChanges) => {
     setChannels(prev => prev.map(ch => ch.id !== id ? ch : { ...ch, ...changes }));
     extChange?.(id, changes);
+    
+    const micIndex = id - 1; // ch.id 1-5 → micIndex 0-4
+    
+    // Wire gain knob changes to audio engine
+    if (changes.gain !== undefined) {
+      console.log('[RJ MIC GAIN KNOB] Setting gain for micIndex', micIndex, 'to', changes.gain / 100);
+      audio.setMicrophoneGainByIndex(micIndex, changes.gain / 100).catch((err) => {
+        console.error('[RJ MIC GAIN ERROR]', err);
+      });
+    }
+    
+    // Wire fader changes to audio engine (controls same gain parameter)
+    // In professional mixers: gain=input sensitivity, fader=channel level
+    // Since we only have one gain parameter, fader also controls it
+    if (changes.fader !== undefined) {
+      console.log('[RJ MIC FADER] Setting gain for micIndex', micIndex, 'to', changes.fader / 100);
+      audio.setMicrophoneGainByIndex(micIndex, changes.fader / 100).catch((err) => {
+        console.error('[RJ MIC FADER ERROR]', err);
+      });
+    }
   }, [extChange]);
 
   return (
@@ -688,7 +727,13 @@ export default function DualMicSetup({ channels: extChannels, onChannelChange: e
     }}>
       <div style={{ display: "flex", flexDirection: "row", gap: 8, width: "100%" }}>
         {channels.map(ch => (
-          <ChannelStrip key={ch.id} ch={ch} availableDevices={availableDevices} onChange={changes => handleChange(ch.id, changes)} />
+          <ChannelStrip 
+            key={ch.id} 
+            ch={ch} 
+            availableDevices={availableDevices} 
+            onChange={changes => handleChange(ch.id, changes)}
+            soloManager={soloManager}
+          />
         ))}
       </div>
     </div>

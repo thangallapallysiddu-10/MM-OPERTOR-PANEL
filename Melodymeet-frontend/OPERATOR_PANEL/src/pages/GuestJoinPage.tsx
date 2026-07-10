@@ -68,11 +68,10 @@ export default function GuestJoinPage({ slotId, roomId, onLeave }: GuestJoinPage
 
   const getSlotLabel = (id: string) => {
     const map: Record<string, string> = {
-      'mic2': 'MIC 2 — Guest Slot 1',
-      'mic3': 'MIC 3 — Guest Slot 2',
-      'mic4': 'MIC 4 — Guest Slot 3',
-      'mic5': 'MIC 5 — Guest Slot 4',
-      'mic6': 'MIC 6 — Call-in Guest',
+      'mic2': 'MIC 2 — Co-Host',
+      'mic3': 'MIC 3 — Guest 1',
+      'mic4': 'MIC 4 — Guest 2',
+      'mic5': 'MIC 5 — Guest 3',
     };
     return map[id] || `MIC ${id?.replace('mic', '') || '?'} — Guest Slot`;
   };

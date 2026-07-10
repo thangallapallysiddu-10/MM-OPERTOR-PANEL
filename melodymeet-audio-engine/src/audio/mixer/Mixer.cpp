@@ -6,6 +6,7 @@
 #include <atomic>
 #include <cmath>
 #include <cstdio>
+#include <iostream>
 #include <thread>
 
 namespace melodymeet
@@ -167,12 +168,19 @@ bool Mixer::isMuted(SourceId sourceId) const noexcept
 
 bool Mixer::setSolo(SourceId sourceId, bool soloed) noexcept
 {
+    std::cout << "[MIXER SOLO] setSolo called: sourceId=" << sourceId 
+              << " soloed=" << (soloed ? "true" : "false") << std::endl;
+    
     if (auto* channel = findChannel(sourceId))
     {
+        std::cout << "[MIXER SOLO] Channel FOUND for sourceId=" << sourceId << std::endl;
         channel->setSoloed(soloed);
+        std::cout << "[MIXER SOLO] Channel->setSoloed() called. isSoloed=" 
+                  << (channel->isSoloed() ? "true" : "false") << std::endl;
         return true;
     }
 
+    std::cout << "[MIXER SOLO ERROR] Channel NOT FOUND for sourceId=" << sourceId << std::endl;
     return false;
 }
 
@@ -225,13 +233,31 @@ const MixerChannel* Mixer::getChannel(SourceId sourceId) const noexcept
 
 bool Mixer::hasSoloedSource() const noexcept
 {
+    static std::atomic<uint64_t> checkCount{0};
+    const auto count = checkCount.fetch_add(1, std::memory_order_relaxed);
+    
+    bool foundSolo = false;
+    int soloedCount = 0;
+    
     for (const auto& channel : channels_)
     {
-        if (channel.getSourcePointer() != nullptr && channel.isSoloed())
-            return true;
+        if (channel.getSourcePointer() != nullptr && channel.isSoloed()) {
+            foundSolo = true;
+            soloedCount++;
+            
+            if (count % 100 == 0) {
+                std::cout << "[MIXER HAS SOLO] Found soloed channel: sourceId=" 
+                          << channel.getChannelId() << std::endl;
+            }
+        }
+    }
+    
+    if (count % 100 == 0) {
+        std::cout << "[MIXER HAS SOLO] Result=" << (foundSolo ? "TRUE" : "FALSE")
+                  << " soloedCount=" << soloedCount << std::endl;
     }
 
-    return false;
+    return foundSolo;
 }
 
 // =============================================================================
@@ -395,6 +421,7 @@ void Mixer::release() noexcept
 void Mixer::process(float* const* outputChannels, int channelCount, int numSamples) noexcept
 {
     static std::atomic<uint64_t> mixerTraceCount{0};
+    static std::atomic<uint64_t> soloLogThrottle{0};
     const auto traceId = mixerTraceCount.fetch_add(1, std::memory_order_relaxed) + 1;
 
     if (!prepared_ || numSamples <= 0 || channelCount_ <= 0)
@@ -407,9 +434,31 @@ void Mixer::process(float* const* outputChannels, int channelCount, int numSampl
 
     // Determine if any channel is soloed (affects which channels contribute).
     const bool soloActive = hasSoloedSource();
+    
+    // Log solo state every 100 process calls to avoid spam
+    const auto logCount = soloLogThrottle.fetch_add(1, std::memory_order_relaxed);
+    if (logCount % 100 == 0) {
+        std::cout << "[MIXER PROCESS] soloActive=" << (soloActive ? "TRUE" : "FALSE") 
+                  << " sourceCount=" << sourceCount_ << std::endl;
+        
+        if (soloActive) {
+            std::cout << "[MIXER PROCESS] SOLO IS ACTIVE - listing all channels:" << std::endl;
+            for (const auto& ch : channels_) {
+                if (ch.isAssigned()) {
+                    std::cout << "  sourceId=" << ch.getChannelId() 
+                              << " enabled=" << (ch.isEnabled() ? "Y" : "N")
+                              << " muted=" << (ch.isMuted() ? "Y" : "N")
+                              << " SOLOED=" << (ch.isSoloed() ? "YES" : "NO") << std::endl;
+                }
+            }
+        }
+    }
 
     // Step 2: Iterate over every registered channel.
     int sourceIndex = 0;
+    int skippedBySolo = 0;
+    int processedChannels = 0;
+    
     for (const auto& ch : channels_)
     {
         ++sourceIndex;
@@ -430,8 +479,12 @@ void Mixer::process(float* const* outputChannels, int channelCount, int numSampl
             continue;
 
         // Solo logic: when any channel is soloed, only soloed channels contribute.
-        if (soloActive && !ch.isSoloed())
+        if (soloActive && !ch.isSoloed()) {
+            skippedBySolo++;
             continue;
+        }
+
+        processedChannels++;
 
         // Step 4: Skip inactive sources.
         if (!source->isActive())
@@ -469,6 +522,12 @@ void Mixer::process(float* const* outputChannels, int channelCount, int numSampl
                 }
             }
         }
+    }
+    
+    // Log channel processing stats when solo is active
+    if (logCount % 100 == 0 && soloActive) {
+        std::cout << "[MIXER PROCESS] Solo active: skipped=" << skippedBySolo 
+                  << " processed=" << processedChannels << std::endl;
     }
 
     // Copy the final program mix to the caller-provided output buffers.

@@ -14,7 +14,7 @@ export interface GuestSeat {
   status: GuestStatus;
   inviteUrl?: string; 
   signalStrength?: 0 | 1 | 2 | 3;
-  slotId?: string;    // mic2, mic3, mic4, mic5, mic6
+  slotId?: string;    // mic2, mic3, mic4, mic5
 }
 
 export interface RemoteGuestsPanelProps {
@@ -35,47 +35,37 @@ function buildGuestLink(roomId: string, slotId: string, guestName: string): stri
   return `${base}/podcast/guest/${slotId}/${roomId}?name=${encodeURIComponent(guestName)}`;
 }
 
-// ── DEFAULT SEATS - Updated with local links ──────────────────────────────
+// ── DEFAULT SEATS - Updated with correct architecture ──────────────────────────
 const DEFAULT_SEATS: GuestSeat[] = [
   {
     id: "seat-1",
-    label: "Guest Mic 1",
-    name: "Ananya",
-    status: "connected",
-    signalStrength: 3,
+    label: "Co-Host",
+    name: "Co-Host",
+    status: "offline",
     slotId: "mic2",
-    inviteUrl: "https://operator-panel-tan.vercel.app/podcast/guest/mic2/ROOM123?name=Ananya",
   },
   {
     id: "seat-2",
-    label: "Guest Mic 2",
-    name: "Vivek",
-    status: "connected",
-    signalStrength: 2,
+    label: "Guest 1",
+    name: "Guest 1",
+    status: "offline",
     slotId: "mic3",
-    inviteUrl: "https://operator-panel-tan.vercel.app/podcast/guest/mic3/ROOM123?name=Vivek",
+    inviteUrl: "https://operator-panel-tan.vercel.app/podcast/guest/mic3/ROOM123?name=Guest+1",
   },
   {
     id: "seat-3",
-    label: "Remote Guest 1",
-    name: "Arjun",
-    status: "waiting",
+    label: "Guest 2",
+    name: "Guest 2",
+    status: "offline",
     slotId: "mic4",
-    inviteUrl: "https://operator-panel-tan.vercel.app/podcast/guest/mic4/ROOM123?name=Arjun",
+    inviteUrl: "https://operator-panel-tan.vercel.app/podcast/guest/mic4/ROOM123?name=Guest+2",
   },
   {
     id: "seat-4",
-    label: "Remote Guest 2",
-    name: "Neha",
+    label: "Guest 3",
+    name: "Guest 3",
     status: "offline",
     slotId: "mic5",
-  },
-  {
-    id: "seat-5",
-    label: "Call-in Guest",
-    name: "Listener",
-    status: "offline",
-    slotId: "mic6",
   },
 ];
 
@@ -256,7 +246,7 @@ export default function RemoteGuestsPanel({
 
     const nextNumber = seats.length + 1;
     const slotMap: Record<string, string> = {
-      '2': 'mic2', '3': 'mic3', '4': 'mic4', '5': 'mic5', '6': 'mic6'
+      '2': 'mic2', '3': 'mic3', '4': 'mic4', '5': 'mic5'
     };
     const nextSlot = slotMap[String(nextNumber + 1)] || `mic${nextNumber + 1}`;
     
@@ -264,7 +254,7 @@ export default function RemoteGuestsPanel({
       ...prev,
       {
         id: `seat-${Date.now()}`,
-        label: `Remote Guest ${nextNumber}`,
+        label: guestName,
         name: guestName.trim(),
         status: "offline",
         slotId: nextSlot,

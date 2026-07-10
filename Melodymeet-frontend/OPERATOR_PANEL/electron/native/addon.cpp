@@ -406,10 +406,19 @@ Napi::Value SetMasterGain(const Napi::CallbackInfo& info)
     Napi::Env env = info.Env();
     if (info.Length() < 1 || !info[0].IsNumber())
         throw Napi::TypeError::New(env, "Expected number gain");
+    
+    float gain = info[0].As<Napi::Number>().FloatValue();
+    std::cout
+        << "\n\n========== ADDON SET MASTER GAIN ==========\n"
+        << "gain=" << gain
+        << "\n===========================================\n";
+    
     try {
-        getBridge().setMasterGain(info[0].As<Napi::Number>().FloatValue());
+        getBridge().setMasterGain(gain);
+        std::cout << "[NATIVE MASTER GAIN] success" << std::endl;
         return env.Undefined();
     } catch (const std::exception& e) {
+        std::cerr << "[NATIVE MASTER GAIN] exception: " << e.what() << std::endl;
         throw Napi::Error::New(env, e.what());
     }
 }
@@ -611,6 +620,31 @@ Napi::Value MuteMicrophoneByIndex(const Napi::CallbackInfo& info)
         getBridge().muteMicrophone(info[0].As<Napi::Number>().Int32Value(), info[1].As<Napi::Boolean>().Value());
         return env.Undefined();
     } catch (const std::exception& e) {
+        throw Napi::Error::New(env, e.what());
+    }
+}
+
+Napi::Value SoloMicrophoneByIndex(const Napi::CallbackInfo& info)
+{
+    Napi::Env env = info.Env();
+    if (info.Length() < 2 || !info[0].IsNumber() || !info[1].IsBoolean())
+        throw Napi::TypeError::New(env, "Expected number micIndex and boolean soloed");
+    
+    int micIndex = info[0].As<Napi::Number>().Int32Value();
+    bool soloed = info[1].As<Napi::Boolean>().Value();
+    
+    std::cout
+        << "\n\n========== ADDON SOLO MIC ==========\n"
+        << "micIndex=" << micIndex
+        << " soloed=" << (soloed ? "true" : "false")
+        << "\n====================================\n";
+
+    try {
+        getBridge().soloMicrophone(micIndex, soloed);
+        std::cout << "[NATIVE SOLO MIC] success" << std::endl;
+        return env.Undefined();
+    } catch (const std::exception& e) {
+        std::cerr << "[NATIVE SOLO MIC] exception: " << e.what() << std::endl;
         throw Napi::Error::New(env, e.what());
     }
 }
@@ -1069,6 +1103,7 @@ Napi::Object InitModule(Napi::Env env, Napi::Object exports)
     exports.Set("setMicrophoneGainByIndex", Napi::Function::New(env, SetMicrophoneGainByIndex));
     exports.Set("muteMicrophone",           Napi::Function::New(env, MuteMicrophone));
     exports.Set("muteMicrophoneByIndex",    Napi::Function::New(env, MuteMicrophoneByIndex));
+    exports.Set("soloMicrophoneByIndex",    Napi::Function::New(env, SoloMicrophoneByIndex));
     exports.Set("getMicrophoneSnapshot",    Napi::Function::New(env, GetMicrophoneSnapshot));
 
     // Recording API

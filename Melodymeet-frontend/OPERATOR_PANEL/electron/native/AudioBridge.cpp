@@ -316,9 +316,12 @@ void AudioBridge::setDeckGain(const std::string& deckId, float gain)
 
 void AudioBridge::setMasterGain(float gain)
 {
+    std::cout << "[AUDIOBRIDGE] setMasterGain(" << gain << ")" << std::endl;
     std::lock_guard<std::mutex> lock(mutex_);
     if (!initialized_ || !engine_) throw std::runtime_error("Engine not initialized");
+    std::cout << "[AUDIOBRIDGE] Calling engine_->setMasterGain(" << gain << ")" << std::endl;
     engine_->setMasterGain(gain);
+    std::cout << "[AUDIOBRIDGE] setMasterGain complete" << std::endl;
 }
 
 void AudioBridge::muteDeck(const std::string& deckId, bool muted)
@@ -417,6 +420,13 @@ void AudioBridge::muteMicrophone(int micIndex, bool muted)
     std::lock_guard<std::mutex> lock(mutex_);
     if (!initialized_ || !engine_) throw std::runtime_error("Engine not initialized");
     engine_->muteMicrophone(micIndex, muted);
+}
+
+void AudioBridge::soloMicrophone(int micIndex, bool soloed)
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!initialized_ || !engine_) throw std::runtime_error("Engine not initialized");
+    engine_->soloMicrophone(micIndex, soloed);
 }
 
 AudioBridge::MicrophoneSnapshot AudioBridge::getMicrophoneSnapshot() const

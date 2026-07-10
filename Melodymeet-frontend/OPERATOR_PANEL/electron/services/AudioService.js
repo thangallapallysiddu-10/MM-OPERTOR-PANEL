@@ -372,6 +372,7 @@ class AudioService {
 
     setMasterGain(gain) {
         if (!this.initialized) throw new Error('AudioEngine not initialized');
+        console.log('[AUDIOSERVICE MASTER GAIN]', gain);
         // Sanitize at the service boundary — never forward NaN, Infinity, or
         // out-of-range values to the native engine.
         const safeGain = (typeof gain === 'number' && Number.isFinite(gain))
@@ -380,6 +381,7 @@ class AudioService {
         if (safeGain !== gain) {
             console.warn('[AudioService] setMasterGain clamped:', gain, '->', safeGain);
         }
+        console.log('[AUDIOSERVICE] Calling addon.setMasterGain', safeGain);
         return addon.setMasterGain(safeGain);
     }
 
@@ -491,6 +493,17 @@ class AudioService {
             return;
         }
         console.warn('[AudioService] Indexed microphones require a rebuilt native addon; ignoring mute for mic index:', micIndex);
+    }
+
+    soloMicrophoneByIndex(micIndex, soloed) {
+        console.log('[AUDIOSERVICE SOLO MIC]', { micIndex, soloed, initialized: this.initialized });
+        if (!this.initialized) throw new Error('AudioEngine not initialized');
+        if (this._hasAddonFunction('soloMicrophoneByIndex')) {
+            console.log('[AUDIOSERVICE] Calling addon.soloMicrophoneByIndex', micIndex, soloed);
+            addon.soloMicrophoneByIndex(micIndex, soloed);
+            return;
+        }
+        console.warn('[AudioService] soloMicrophoneByIndex not available in native addon; ignoring solo for mic index:', micIndex);
     }
 
     getMicrophoneSnapshot() {

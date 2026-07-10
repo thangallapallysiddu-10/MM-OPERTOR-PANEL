@@ -1,6 +1,7 @@
 #include "MixerChannel.h"
 
 #include <algorithm>
+#include <iostream>
 
 namespace melodymeet
 {
@@ -101,7 +102,13 @@ bool MixerChannel::isMuted() const noexcept
 
 void MixerChannel::setSoloed(bool soloed) noexcept
 {
+    const bool wasSoloed = soloed_.load(std::memory_order_relaxed);
     soloed_.store(soloed, std::memory_order_relaxed);
+    const bool nowSoloed = soloed_.load(std::memory_order_relaxed);
+    
+    std::cout << "[MIXERCHANNEL SOLO] channelId=" << channelId_ 
+              << " wasSoloed=" << (wasSoloed ? "true" : "false")
+              << " nowSoloed=" << (nowSoloed ? "true" : "false") << std::endl;
 }
 
 bool MixerChannel::isSoloed() const noexcept

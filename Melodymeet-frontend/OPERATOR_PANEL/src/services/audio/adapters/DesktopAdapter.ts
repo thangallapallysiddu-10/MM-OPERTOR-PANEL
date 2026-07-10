@@ -134,12 +134,17 @@ export class DesktopAdapter implements IAudioAdapter {
   }
   setMicrophoneGain(gain: number): Promise<void> { return this.invoke('setMicrophoneGain', gain); }
   setMicrophoneGainByIndex(micIndex: number, gain: number): Promise<void> {
+    console.log('[DESKTOP ADAPTER MIC GAIN]', { micIndex, gain });
     return this.invoke('setMicrophoneGainByIndex', micIndex, gain);
   }
   muteMicrophone(muted: boolean): Promise<void> { return this.invoke('muteMicrophone', muted); }
   muteMicrophoneByIndex(micIndex: number, muted: boolean): Promise<void> {
     console.log('[DESKTOP ADAPTER] muteMicrophoneByIndex', { micIndex, muted });
     return this.invoke('muteMicrophoneByIndex', micIndex, muted);
+  }
+  soloMicrophoneByIndex(micIndex: number, soloed: boolean): Promise<void> {
+    console.log('[DESKTOP ADAPTER] soloMicrophoneByIndex', { micIndex, soloed });
+    return this.invoke('soloMicrophoneByIndex', micIndex, soloed);
   }
 
   startRecording(): Promise<void> { return this.invoke('startRecording'); }

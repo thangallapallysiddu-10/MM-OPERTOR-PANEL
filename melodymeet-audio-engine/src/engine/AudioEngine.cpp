@@ -187,12 +187,22 @@ void AudioEngine::setDeckGain(const std::string& deckId, float gain) {
 }
 
 void AudioEngine::setMasterGain(float gain) {
+    std::cout << "[AUDIOENGINE] setMasterGain(" << gain << ")" << std::endl;
     if (auto* session = sessionManager_.getActiveSession()) {
+        std::cout << "[AUDIOENGINE] Active session found" << std::endl;
         auto proc = session->getOutputStage().getMasterDSPChain()
                         .getProcessor(MasterDSPChain::Slot::MasterGain);
+        std::cout << "[AUDIOENGINE] Got processor: " << (proc ? "valid" : "null") << std::endl;
         if (auto* masterGain = dynamic_cast<MasterGainProcessor*>(proc.get())) {
-            masterGain->setGainLinear(std::clamp(gain, 0.0f, 4.0f));
+            float clampedGain = std::clamp(gain, 0.0f, 4.0f);
+            std::cout << "[AUDIOENGINE] Setting gain: " << gain << " → " << clampedGain << std::endl;
+            masterGain->setGainLinear(clampedGain);
+            std::cout << "[AUDIOENGINE] setMasterGain complete" << std::endl;
+        } else {
+            std::cout << "[AUDIOENGINE] ERROR: MasterGainProcessor cast failed!" << std::endl;
         }
+    } else {
+        std::cout << "[AUDIOENGINE] ERROR: No active session!" << std::endl;
     }
 }
 
@@ -284,9 +294,13 @@ void AudioEngine::setMicrophoneGain(float gain) {
 }
 
 void AudioEngine::setMicrophoneGain(int micIndex, float gain) {
+    std::cout << "[ENGINE MIC GAIN] micIndex=" << micIndex << " gain=" << gain << std::endl;
     auto mic = sessionManager_.getActiveSession()->getMicrophoneManager().getMicrophone(static_cast<std::size_t>(std::max(0, micIndex)));
     if (mic) {
+        std::cout << "[ENGINE MIC GAIN] Microphone found, calling setGain(" << gain << ")" << std::endl;
         mic->setGain(gain);
+    } else {
+        std::cout << "[ENGINE MIC GAIN ERROR] Microphone NOT FOUND for index " << micIndex << std::endl;
     }
 }
 
@@ -299,6 +313,36 @@ void AudioEngine::muteMicrophone(int micIndex, bool muted) {
     if (mic) {
         mic->setMuted(muted);
     }
+}
+
+void AudioEngine::soloMicrophone(int micIndex, bool soloed) {
+    std::cout << "[AUDIO ENGINE] soloMicrophone micIndex=" << micIndex << " soloed=" << soloed << std::endl;
+    
+    auto* session = sessionManager_.getActiveSession();
+    if (!session) {
+        std::cerr << "[AUDIO ENGINE] No active session" << std::endl;
+        return;
+    }
+    
+    // Calculate the mixer source ID based on session type and micIndex
+    // RJ: Deck A=1, Deck B=2, Mic0=3, Mic1=4, Mic2=5, Mic3=6, Mic4=7
+    // Podcast: Preview=1, Mic0=2, Mic1=3, Mic2=4, Mic3=5, Mic4=6
+    
+    int sourceId;
+    if (auto* rj = dynamic_cast<RJSession*>(session)) {
+        sourceId = micIndex + 3;  // Decks occupy IDs 1 and 2
+        std::cout << "[AUDIO ENGINE] RJ session: micIndex=" << micIndex << " -> sourceId=" << sourceId << std::endl;
+    } else if (auto* podcast = dynamic_cast<PodcastSession*>(session)) {
+        sourceId = micIndex + 2;  // Preview occupies ID 1
+        std::cout << "[AUDIO ENGINE] Podcast session: micIndex=" << micIndex << " -> sourceId=" << sourceId << std::endl;
+    } else {
+        std::cerr << "[AUDIO ENGINE] Unknown session type" << std::endl;
+        return;
+    }
+    
+    // Call the mixer's setSolo method directly with the calculated source ID
+    session->getMixer().setSolo(sourceId, soloed);
+    std::cout << "[AUDIO ENGINE] Called mixer.setSolo(" << sourceId << ", " << soloed << ")" << std::endl;
 }
 
 bool AudioEngine::startRecording(const std::string& outputPath) {

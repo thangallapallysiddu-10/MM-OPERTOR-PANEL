@@ -75,11 +75,18 @@ contextBridge.exposeInMainWorld('audio', {
     return ipcRenderer.invoke('audio:disableMicrophoneByIndex', micIndex);
   },
   setMicrophoneGain:        (gain) => ipcRenderer.invoke('audio:setMicrophoneGain', gain),
-  setMicrophoneGainByIndex: (micIndex, gain) => ipcRenderer.invoke('audio:setMicrophoneGainByIndex', micIndex, gain),
+  setMicrophoneGainByIndex: (micIndex, gain) => {
+    console.log('[PRELOAD IPC MIC GAIN]', { micIndex, gain });
+    return ipcRenderer.invoke('audio:setMicrophoneGainByIndex', micIndex, gain);
+  },
   muteMicrophone:           (muted) => ipcRenderer.invoke('audio:muteMicrophone', muted),
   muteMicrophoneByIndex:    (micIndex, muted) => {
     console.log('[PRELOAD IPC] muteMicrophoneByIndex', { micIndex, muted });
     return ipcRenderer.invoke('audio:muteMicrophoneByIndex', micIndex, muted);
+  },
+  soloMicrophoneByIndex:    (micIndex, soloed) => {
+    console.log('[PRELOAD IPC] soloMicrophoneByIndex', { micIndex, soloed });
+    return ipcRenderer.invoke('audio:soloMicrophoneByIndex', micIndex, soloed);
   },
 
   // Recording APIs

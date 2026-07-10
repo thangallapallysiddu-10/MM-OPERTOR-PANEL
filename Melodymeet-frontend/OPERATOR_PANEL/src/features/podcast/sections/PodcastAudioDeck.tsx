@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useAppStore } from "../../../store/useAppStore";
 import { audio } from "../../../services/audio";
+import { usePodcastMicSystem, PodcastMic } from "../hooks/usePodcastMicSystem";
 
 // ── COLORS ────────────────────────────────────────────────────────────────────
 const C = {
@@ -39,7 +40,7 @@ const SCALE_LABELS = ["10","5","0","-5","-10","-15","-20","-30","-40","-60"];
 
 // ── TYPES ─────────────────────────────────────────────────────────────────────
 type Status = "active" | "waiting" | "offline";
-type SlotId = "mic1" | "mic2" | "mic3" | "mic4" | "mic5" | "mic6";
+type SlotId = "mic1" | "mic2" | "mic3" | "mic4" | "mic5";
 
 type Channel = {
   id: number;
@@ -74,44 +75,37 @@ function buildGuestLink(roomLink: string, slotId: SlotId, guestName: string): st
 // ── DEFAULT CHANNELS ──────────────────────────────────────────────────────────
 const makeDefaultChannels = (roomLink: string): Channel[] => [
   {
-    id: 1, slotId: "mic1", label: "1. Host Mic", name: "RJ Sidhu",
+    id: 1, slotId: "mic1", label: "1. Host", name: "Host",
     status: "active",
     gain: 60, hi: 50, mid: 50, low: 50, fader: 62,
     muted: false, soloed: false, vuL: 0, vuR: 0,
     hasLink: false, guestName: null,
   },
   {
-    id: 2, slotId: "mic2", label: "2. Guest Mic 1", name: "Guest Slot 1",
+    id: 2, slotId: "mic2", label: "2. Co-Host", name: "Co-Host",
     status: "offline",
     gain: 0, hi: 50, mid: 50, low: 50, fader: 58,
     muted: true, soloed: false, vuL: 0, vuR: 0,
     hasLink: true, guestName: null,
   },
   {
-    id: 3, slotId: "mic3", label: "3. Guest Mic 2", name: "Guest Slot 2",
+    id: 3, slotId: "mic3", label: "3. Guest 1", name: "Guest 1",
     status: "offline",
     gain: 0, hi: 50, mid: 50, low: 50, fader: 65,
     muted: true, soloed: false, vuL: 0, vuR: 0,
     hasLink: true, guestName: null,
   },
   {
-    id: 4, slotId: "mic4", label: "4. Remote Guest 1", name: "Guest Slot 3",
+    id: 4, slotId: "mic4", label: "4. Guest 2", name: "Guest 2",
     status: "offline",
     gain: 0, hi: 50, mid: 50, low: 50, fader: 60,
     muted: true, soloed: false, vuL: 0, vuR: 0,
     hasLink: true, guestName: null,
   },
   {
-    id: 5, slotId: "mic5", label: "5. Remote Guest 2", name: "Guest Slot 4",
+    id: 5, slotId: "mic5", label: "5. Guest 3", name: "Guest 3",
     status: "offline",
     gain: 0, hi: 50, mid: 50, low: 50, fader: 58,
-    muted: true, soloed: false, vuL: 0, vuR: 0,
-    hasLink: true, guestName: null,
-  },
-  {
-    id: 6, slotId: "mic6", label: "6. Call-in Guest", name: "Call-in Slot",
-    status: "offline",
-    gain: 0, hi: 50, mid: 50, low: 50, fader: 55,
     muted: true, soloed: false, vuL: 0, vuR: 0,
     hasLink: true, guestName: null,
   },
@@ -264,11 +258,14 @@ const LinkSvg = ({ color }: { color: string }) => (
 
 // ── CHANNEL STRIP ─────────────────────────────────────────────────────────────
 function ChannelStrip({
-  ch, onChange, roomLink,
+  ch, onChange, roomLink, onToggleActivation, availableDevices, onDeviceChange,
 }: {
   ch: Channel;
   onChange: (c: ChannelChanges) => void;
   roomLink: string;
+  onToggleActivation: () => void;
+  availableDevices: string[];
+  onDeviceChange: (device: string) => void;
 }) {
   const upd = (c: ChannelChanges) => onChange(c);
   
@@ -324,12 +321,18 @@ function ChannelStrip({
 
         {/* STATUS ROW */}
         <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10 }}>
-          <div style={{
+          <div 
+            onClick={onToggleActivation}
+            style={{
             background: statusBg,
             border: !isActive && !isWaiting ? `1px solid ${C.offlineGray}` : "1px solid transparent",
             borderRadius: 5, padding: "5px 10px",
             display: "flex", alignItems: "center", gap: 5, flexShrink: 0,
-          }}>
+            cursor: "pointer",
+            transition: "all 0.15s",
+            }}
+            title={`Click to ${isActive ? 'disable' : 'enable'} microphone`}
+          >
             <div style={{ width: 7, height: 7, borderRadius: "50%", backgroundColor: isActive ? "#fff" : isWaiting ? C.waitingText : C.offlineGray, boxShadow: isActive ? "0 0 5px #fff" : "none" }} />
             <span style={{ fontSize: 10, fontWeight: 800, color: statusColor, fontFamily: "monospace" }}>{statusTxt}</span>
           </div>
@@ -404,6 +407,53 @@ function ChannelStrip({
           ))}
         </div>
 
+        {/* DEVICE SELECTION */}
+        <div style={{ marginBottom: 10 }}>
+          <label style={{ fontSize: 9, color: C.textMuted, fontFamily: "monospace", display: "block", marginBottom: 4 }}>
+            INPUT DEVICE
+          </label>
+          <div style={{ position: "relative" }}>
+            <select
+              value={(ch as any).input || ""}
+              onChange={(e) => onDeviceChange(e.target.value)}
+              disabled={availableDevices.length === 0}
+              style={{
+                width: "100%",
+                background: C.inputBg,
+                border: `1px solid ${C.inputBorder}`,
+                borderRadius: 5,
+                color: C.textLight,
+                fontSize: 10,
+                padding: "6px 24px 6px 8px",
+                fontFamily: "monospace",
+                cursor: availableDevices.length > 0 ? "pointer" : "not-allowed",
+                appearance: "none",
+                outline: "none",
+              }}
+            >
+              <option value="">Select device...</option>
+              {availableDevices.map((dev) => (
+                <option key={dev} value={dev}>
+                  {dev}
+                </option>
+              ))}
+            </select>
+            <span
+              style={{
+                position: "absolute",
+                right: 8,
+                top: "50%",
+                transform: "translateY(-50%)",
+                fontSize: 8,
+                color: C.textMuted,
+                pointerEvents: "none",
+              }}
+            >
+              ▼
+            </span>
+          </div>
+        </div>
+
         {/* SOLO / MUTE */}
         <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
           <button onClick={() => upd({ soloed: !ch.soloed })} style={{ flex: 1, padding: "8px 0", borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 600, fontFamily: "monospace", backgroundColor: ch.soloed ? C.soloActive : C.soloBg, border: `1px solid ${ch.soloed ? C.soloActiveBorder : C.soloBorder}`, color: ch.soloed ? C.soloActiveText : "#d1d5db" }}>Solo</button>
@@ -454,6 +504,37 @@ function ChannelStrip({
               </div>
             )}
           </div>
+
+          {/* ✅ PHASE 3: Health Monitoring */}
+          {isActive && (
+            <div style={{ marginTop: 8, padding: "6px 8px", background: "#0a0e15", border: `1px solid ${C.stripBorder}`, borderRadius: 5, display: "flex", flexDirection: "column", gap: 3 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ fontSize: 9, color: C.textMuted, fontFamily: "monospace" }}>Device:</span>
+                <span style={{ fontSize: 9, color: (ch as any).connected ? C.barGreen : C.muteDefault, fontFamily: "monospace", fontWeight: 700 }}>
+                  {(ch as any).connected ? "✓ Connected" : "✗ Disconnected"}
+                </span>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ fontSize: 9, color: C.textMuted, fontFamily: "monospace" }}>Signal:</span>
+                <span style={{ fontSize: 9, color: (ch as any).signalPresent ? C.barGreen : C.textMuted, fontFamily: "monospace", fontWeight: 700 }}>
+                  {(ch as any).signalPresent ? "🎙️ Present" : "Silent"}
+                </span>
+              </div>
+              {(ch as any).clipped && (
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span style={{ fontSize: 9, color: C.barRed, fontFamily: "monospace", fontWeight: 700 }}>
+                    ⚠️ CLIPPING DETECTED
+                  </span>
+                </div>
+              )}
+              {(ch as any).noiseFloor && (ch as any).noiseFloor !== "-" && (
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span style={{ fontSize: 9, color: C.textMuted, fontFamily: "monospace" }}>Noise Floor:</span>
+                  <span style={{ fontSize: 9, color: C.textLight, fontFamily: "monospace" }}>{(ch as any).noiseFloor}</span>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </>
@@ -466,17 +547,101 @@ interface PodcastAudioDeckProps {
 }
 
 export default function PodcastAudioDeck({ roomLink = window?.location?.href ?? "" }: PodcastAudioDeckProps) {
-  const [channels, setChannels] = useState<Channel[]>(() => makeDefaultChannels(roomLink));
   const [viewFilter, setViewFilter] = useState("All Channels");
 
   const { podcast } = useAppStore();
   const guestSlots = podcast.guestSlots;
 
+  // ✅ PHASE 3: Native Mic System Integration
+  const addNotification = useCallback((type: "request" | "system" | "alert", message: string) => {
+    console.log(`[PODCAST ${type.toUpperCase()}]`, message);
+    // TODO: Wire to actual notification system if available
+  }, []);
+
+  const micSystem = usePodcastMicSystem(addNotification);
+
+  // Helper to toggle mic activation
+  const handleToggleActivation = useCallback((slotId: SlotId) => {
+    micSystem.toggleMicActive(slotId);
+  }, [micSystem]);
+
+  // Convert PodcastMic[] to Channel[] for UI rendering
+  const [channels, setChannels] = useState<Channel[]>(() => makeDefaultChannels(roomLink));
+
+  // ✅ PHASE 3: Sync native mic state to channel state
+  // FIX: Use useRef + manual sync instead of useEffect with micSystem.allMics dependency
+  // This prevents infinite loop from meter updates triggering re-renders
+  const prevMicsRef = useRef<PodcastMic[]>([]);
+  
+  useEffect(() => {
+    // Only update if mic state actually changed (not just meter values)
+    const micsChanged = micSystem.allMics.some((mic, idx) => {
+      const prev = prevMicsRef.current[idx];
+      if (!prev) return true;
+      
+      // Only check structural changes, ignore meter updates (volume, rms)
+      return (
+        mic.id !== prev.id ||
+        mic.isActive !== prev.isActive ||
+        mic.isMuted !== prev.isMuted ||
+        mic.input !== prev.input ||
+        mic.connected !== prev.connected ||
+        mic.clipped !== prev.clipped ||
+        mic.signalPresent !== prev.signalPresent
+        // Deliberately exclude: volume, rms, noiseFloor (these update 60Hz)
+      );
+    });
+    
+    if (!micsChanged) {
+      // Still need to update VU meters even if structure didn't change
+      setChannels(prev => prev.map((ch, idx) => {
+        const mic = micSystem.allMics[idx];
+        if (!mic) return ch;
+        
+        // Only update meter values
+        if (ch.vuL !== mic.volume || ch.vuR !== mic.volume) {
+          return { ...ch, vuL: mic.volume, vuR: mic.volume };
+        }
+        return ch;
+      }));
+      return;
+    }
+    
+    // Structural change detected - full update
+    prevMicsRef.current = micSystem.allMics;
+    
+    setChannels(prev => prev.map((ch, idx) => {
+      const mic = micSystem.allMics[idx];
+      if (!mic) return ch;
+
+      return {
+        ...ch,
+        status: mic.isActive ? "active" : "offline",
+        muted: mic.isMuted,
+        vuL: mic.volume,
+        vuR: mic.volume, // Mono mic, duplicate to both channels
+        gain: mic.isActive ? ch.gain : 0, // Keep UI gain knob state
+        // NEW FIELDS from native engine
+        input: mic.input,
+        connected: mic.connected,
+        clipped: mic.clipped,
+        signalPresent: mic.signalPresent,
+        noiseFloor: mic.noiseFloor,
+      } as Channel & {
+        input?: string;
+        connected: boolean;
+        clipped: boolean;
+        signalPresent: boolean;
+        noiseFloor?: string;
+      };
+    }));
+  }, [micSystem.allMics]);
+
   // Sync fader channel strips with global store's guestSlots (which updates via websockets)
   useEffect(() => {
     setChannels((prev) =>
       prev.map((ch) => {
-        if (ch.slotId === "mic1" || ch.slotId === "mic6") return ch;
+        if (ch.slotId === "mic1") return ch;
         const slot = guestSlots.find((s) => s.slotId === ch.slotId);
         if (!slot) return ch;
 
@@ -490,33 +655,8 @@ export default function PodcastAudioDeck({ roomLink = window?.location?.href ?? 
     );
   }, [guestSlots]);
 
-  useEffect(() => {
-    const handleMetersUpdate = (snap: any) => {
-      if (snap) {
-        setChannels(prev => prev.map(ch => {
-          const audioActive = ch.status === "active" && !ch.muted && ch.fader > 0 && ch.gain > 0;
-          if (!audioActive) return { ...ch, vuL: ch.vuL > 0.5 ? ch.vuL * 0.75 : 0, vuR: ch.vuR > 0.5 ? ch.vuR * 0.75 : 0 };
-          
-          let dbL = -60, dbR = -60;
-          // Map Native peak levels to VU pct
-          // Fallback to master if individual mic peaks not natively tracked yet
-          if (ch.slotId === "mic1") {
-            dbL = 20 * Math.log10(Math.max(snap.masterPeakL || 0, 0.0001));
-            dbR = 20 * Math.log10(Math.max(snap.masterPeakR || 0, 0.0001));
-          }
-          // Scale is roughly -60dB to 0dB -> 0 to 100
-          const toPct = (db: number) => Math.min(100, Math.max(0, ((db + 60) / 60) * 100));
-          
-          return { ...ch, vuL: ch.vuL + (toPct(dbL) - ch.vuL) * 0.4, vuR: ch.vuR + (toPct(dbR) - ch.vuR) * 0.4 };
-        }));
-      }
-    };
-    
-    audio.on('meters:update', handleMetersUpdate);
-    return () => {
-      audio.off('meters:update', handleMetersUpdate);
-    };
-  }, []);
+  // ✅ PHASE 3: Meter updates now handled by usePodcastMicSystem hook
+  // Old meter logic removed - native meters come through micSystem.allMics
 
   // Sync with native on mount and dsp:changed
   useEffect(() => {
@@ -555,18 +695,33 @@ export default function PodcastAudioDeck({ roomLink = window?.location?.href ?? 
     setChannels(prev => {
       const next = prev.map(ch => ch.id !== id ? ch : { ...ch, ...changes });
       const ch = next.find(c => c.id === id);
-      if (ch && ch.slotId === "mic1") {
-        if (changes.hi !== undefined || changes.mid !== undefined || changes.low !== undefined) {
-          audio.setEQ("microphone", {
-            eqBass: ch.low,
-            eqMid: ch.mid,
-            eqTreble: ch.hi
-          });
+      
+      if (ch) {
+        // ✅ PHASE 3: Wire mute to native engine
+        if (changes.muted !== undefined) {
+          micSystem.toggleMicMute(ch.slotId);
+        }
+
+        // ✅ PHASE 3: Wire gain to native engine
+        if (changes.gain !== undefined && ch.slotId === "mic1") {
+          // TODO: Implement setMicrophoneGainByIndex
+          // audio.setMicrophoneGainByIndex(getMicIndex(ch.slotId), changes.gain);
+        }
+
+        // EQ integration (keep existing logic)
+        if (ch.slotId === "mic1") {
+          if (changes.hi !== undefined || changes.mid !== undefined || changes.low !== undefined) {
+            audio.setEQ("microphone", {
+              eqBass: ch.low,
+              eqMid: ch.mid,
+              eqTreble: ch.hi
+            });
+          }
         }
       }
       return next;
     });
-  }, []);
+  }, [micSystem]);
 
   const filtered = viewFilter === "Active Only" ? channels.filter(c => c.status === "active") : channels;
 
@@ -592,7 +747,15 @@ export default function PodcastAudioDeck({ roomLink = window?.location?.href ?? 
       <div style={{ overflowX: "auto" }}>
         <div style={{ display: "flex", flexDirection: "row", gap: 8, minWidth: "max-content" }}>
           {filtered.map(ch => (
-            <ChannelStrip key={ch.id} ch={ch} roomLink={roomLink} onChange={changes => handleChange(ch.id, changes)} />
+            <ChannelStrip 
+              key={ch.id} 
+              ch={ch} 
+              roomLink={roomLink} 
+              onChange={changes => handleChange(ch.id, changes)}
+              onToggleActivation={() => handleToggleActivation(ch.slotId)}
+              availableDevices={micSystem.availableDevices}
+              onDeviceChange={(device) => micSystem.updateMicDevice(ch.slotId, device)}
+            />
           ))}
         </div>
       </div>
