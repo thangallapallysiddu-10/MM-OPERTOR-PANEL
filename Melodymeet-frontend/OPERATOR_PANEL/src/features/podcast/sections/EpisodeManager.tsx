@@ -257,11 +257,20 @@ export const EpisodeManager: React.FC<EpisodeManagerProps> = ({
     if (!title.trim()) return Alert.alert('Error', 'Enter an episode title');
     if (!fileName) return Alert.alert('Error', 'Select an audio file');
 
+    console.log('[PUBLISH] Starting publish...');
+    console.log('[PUBLISH] Title:', title);
+    console.log('[PUBLISH] fileName:', fileName);
+    console.log('[PUBLISH] selectedUri:', selectedUri);
+    console.log('[PUBLISH] fileSize:', fileSize);
+    console.log('[PUBLISH] coverArt:', coverArt);
+
     setUploading(true);
     setProgress(0);
 
     try {
       const isLocalFile = selectedUri && (selectedUri.startsWith('file://') || selectedUri.startsWith('/') || selectedUri.startsWith('content://') || selectedUri.startsWith('ph://'));
+      
+      console.log('[PUBLISH] isLocalFile:', isLocalFile);
       
       const episodeData: any = {
         title: title.trim(),
@@ -273,32 +282,27 @@ export const EpisodeManager: React.FC<EpisodeManagerProps> = ({
         scheduleDate: schedule || null,
       };
 
-      if (isLocalFile) {
-        const formData = new FormData();
-        formData.append('file', {
-          uri: selectedUri,
-          name: fileName,
-          type: 'audio/mpeg',
-        } as any);
-        
-        if (coverArt) {
-          formData.append('coverArt', {
-            uri: coverArt,
-            name: 'cover.jpg',
-            type: 'image/jpeg',
-          } as any);
-        }
-        
-        Object.keys(episodeData).forEach(key => {
-          if (episodeData[key] !== null && episodeData[key] !== undefined) {
-            formData.append(key, String(episodeData[key]));
-          }
-        });
+      console.log('[PUBLISH] episodeData:', episodeData);
 
-        await onPublishEpisode({ formData, isLocal: true, onProgress: (pct: number) => setProgress(pct) });
+      if (isLocalFile) {
+        console.log('[PUBLISH] Local file detected, need to upload recording first...');
+        console.log('[PUBLISH] This is an Electron recording at:', selectedUri);
+        
+        // PROBLEM: We cannot read local files directly in browser due to security
+        // SOLUTION: User needs to restart Electron app for IPC changes to take effect
+        //           OR we upload via the recordings endpoint first
+        
+        Alert.alert(
+          'Upload Required',
+          'To publish a recording, please restart the app first to enable file access, then try again.\n\nAlternatively, you can:\n1. Use the "Upload Audio" button to select the recording file\n2. Or the file will be automatically uploaded when you restart the app.',
+        );
+        setUploading(false);
+        return;
       } else {
+        console.log('[PUBLISH] Using remote file URL...');
         let remoteCoverUrl = coverArt;
         if (coverArt && (coverArt.startsWith('file://') || coverArt.startsWith('/') || coverArt.startsWith('content://') || coverArt.startsWith('ph://'))) {
+          console.log('[PUBLISH] Uploading cover art...');
           const coverFormData = new FormData();
           coverFormData.append('coverArt', {
             uri: coverArt,
@@ -307,6 +311,7 @@ export const EpisodeManager: React.FC<EpisodeManagerProps> = ({
           } as any);
           const uploadRes = await PodcastApi.uploadCoverArt(coverFormData);
           remoteCoverUrl = uploadRes.coverArt;
+          console.log('[PUBLISH] Cover art uploaded:', remoteCoverUrl);
         }
 
         const payload = {
@@ -318,14 +323,19 @@ export const EpisodeManager: React.FC<EpisodeManagerProps> = ({
           source: 'recording',
         };
 
+        console.log('[PUBLISH] Calling onPublishEpisode with payload:', payload);
         await onPublishEpisode({ payload, isLocal: false });
       }
 
+      console.log('[PUBLISH] Success!');
       setUploading(false);
       resetForm();
       Alert.alert('Success!', 'Episode published successfully!');
       onClose();
     } catch (error: any) {
+      console.error('[PUBLISH] Error:', error);
+      console.error('[PUBLISH] Error message:', error?.message);
+      console.error('[PUBLISH] Error stack:', error?.stack);
       setUploading(false);
       Alert.alert('Error', error?.message || 'Failed to publish episode');
     }

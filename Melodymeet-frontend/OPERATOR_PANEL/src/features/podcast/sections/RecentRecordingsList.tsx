@@ -34,6 +34,25 @@ const RecordingItem: React.FC<{
     accent: '#4F6AF0',
     warning: '#D97706',
     danger: '#DC2626',
+    success: '#10B981',
+  };
+
+  const getStatusColor = () => {
+    switch (recording.status) {
+      case 'completed': return themeColors.success;
+      case 'processing': return themeColors.warning;
+      case 'error': return themeColors.danger;
+      default: return themeColors.textMuted;
+    }
+  };
+
+  const getStatusIcon = () => {
+    switch (recording.status) {
+      case 'completed': return 'check-circle';
+      case 'processing': return 'loader';
+      case 'error': return 'alert-circle';
+      default: return 'circle';
+    }
   };
 
   return (
@@ -57,12 +76,19 @@ const RecordingItem: React.FC<{
         </View>
 
         <View style={styles.recordingInfo}>
-          <Text
-            style={[styles.recordingName, { color: themeColors.text }]}
-            numberOfLines={1}
-          >
-            {recording.name}
-          </Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <Text
+              style={[styles.recordingName, { color: themeColors.text }]}
+              numberOfLines={1}
+            >
+              {recording.name}
+            </Text>
+            {recording.status && (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                <Feather name={getStatusIcon()} size={10} color={getStatusColor()} />
+              </View>
+            )}
+          </View>
           <View style={styles.metaRow}>
             <View style={[styles.statPill, { backgroundColor: `${themeColors.accent}08` }]}>
               <Feather name="clock" size={10} color={themeColors.textMuted} />
@@ -72,6 +98,18 @@ const RecordingItem: React.FC<{
               <Feather name="hard-drive" size={10} color={themeColors.textMuted} />
               <Text style={[styles.statPillText, { color: themeColors.textMuted }]}>{recording.size || '5 MB'}</Text>
             </View>
+            {recording.date && (
+              <View style={[styles.statPill, { backgroundColor: `${themeColors.accent}08` }]}>
+                <Feather name="calendar" size={10} color={themeColors.textMuted} />
+                <Text style={[styles.statPillText, { color: themeColors.textMuted }]}>{recording.date}</Text>
+              </View>
+            )}
+            {recording.sampleRate && (
+              <View style={[styles.statPill, { backgroundColor: `${themeColors.accent}08` }]}>
+                <Feather name="activity" size={10} color={themeColors.textMuted} />
+                <Text style={[styles.statPillText, { color: themeColors.textMuted }]}>{(recording.sampleRate / 1000).toFixed(0)}kHz</Text>
+              </View>
+            )}
           </View>
         </View>
       </View>

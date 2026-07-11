@@ -22,6 +22,13 @@ export interface Recording {
   duration: string;
   size: string;
   uri?: string;
+  filePath: string;
+  date: string;
+  status: 'completed' | 'processing' | 'error';
+  sampleRate?: number;
+  channels?: number;
+  peakLevel?: number;
+  createdAt: string;
 }
 
 export interface Mic {

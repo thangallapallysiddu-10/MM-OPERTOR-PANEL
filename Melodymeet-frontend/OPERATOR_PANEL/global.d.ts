@@ -44,6 +44,9 @@ interface WindowAudioBridge {
   startRecording(): Promise<void>;
   stopRecording():  Promise<void>;
 
+  // Audio File Serving
+  readRecordingFile(filePath: string): Promise<{ success: boolean; data?: Uint8Array; size?: number; error?: string }>;
+
   // Broadcast
   startBroadcast(config?: Record<string, unknown>): Promise<void>;
   stopBroadcast(): Promise<void>;

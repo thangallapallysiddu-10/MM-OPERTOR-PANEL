@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <atomic>
 
 namespace melodymeet
 {
@@ -91,6 +92,18 @@ void PodcastSession::process(float* const* outputChannelData, int numOutputChann
                     std::memcpy(outputChannelData[ch], processed[ch], static_cast<std::size_t>(numSamples) * sizeof(float));
                 }
             }
+        }
+
+        static std::atomic<uint64_t> recorderTraceCount{0};
+        const auto traceId = recorderTraceCount.fetch_add(1, std::memory_order_relaxed) + 1;
+        if (traceId % 100 == 0 && recorder_.isRecording()) {
+            char buf[256];
+            std::snprintf(buf, sizeof(buf), 
+                "[PODCAST RECORDER TRACE] recording=%d channels=%d samples=%d preparedChannels=%d",
+                recorder_.isRecording(), numOutputChannels, numSamples, 
+                2); // We'll need to expose channelCount_ to check this
+            RtLogger::get().log(buf);
+            std::cout << buf << std::endl;
         }
 
         recorder_.process(outputChannelData, numOutputChannels, numSamples);

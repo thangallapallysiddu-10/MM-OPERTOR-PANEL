@@ -15,6 +15,7 @@ import {
 import { Feather } from '@expo/vector-icons';
 import { useAuth } from '../../context/AuthContext';
 import { useAppStore } from '../../store/useAppStore';
+import { audio } from '../../services/audio';
 
 // Import sections
 import PodcastAudioDeck from './sections/PodcastAudioDeck';
@@ -29,6 +30,7 @@ import { EpisodeManager } from './sections/EpisodeManager';
 import { LiveSetupModal } from './modals/LiveSetupModal';
 import { PodcastApi } from '../../services/api/operatorApi';
 import { mapEpisodeFromApi } from './utils/podcastMappers';
+import { Recording } from './types';
 
 // Import modals
 import NotificationsModal from '../../components/modals/NotificationsModal';
@@ -206,6 +208,14 @@ function StatsBar({ isLive, stats, colors }: { isLive: boolean; stats: LiveStats
   );
 }
 
+// ── Helper: Convert dB to Linear Gain ─────────────────────────────────────────
+// Maps dB from the master volume knob (-60 … +6 dB) to a linear gain value
+// that is safe to pass to the native MasterGainProcessor.
+const dbToLinearGain = (valueDb: number): number => {
+  if (valueDb <= -60) return 1e-6;          // floor: -120 dBFS, recoverable
+  return Math.pow(10, valueDb / 20);
+};
+
 export default function PodcastUpload({ navigation, view = 'studio' }: any) {
   const { user, logout } = useAuth();
   const { podcast, profileDarkMode, setProfileDarkMode, addPodcastEpisode, removePodcastEpisode } = useAppStore();
@@ -371,30 +381,167 @@ export default function PodcastUpload({ navigation, view = 'studio' }: any) {
   const [isPaused, setIsPaused] = useState(false);
   const [sessionStatus, setSessionStatus] = useState<"recording" | "paused" | "stopped" | "ready">("ready");
 
-  const handleStartRecording = () => {
-    setChapters([]);
-    setSegments([]);
-    setIsPaused(false);
-    setSessionStatus("recording");
-    startRecording();
-  };
-
-  const handlePauseResume = () => {
-    if (isRecording) {
-      setIsPaused(true);
-      setSessionStatus("paused");
-      pauseRecording();
-    } else if (isPaused) {
+  const handleStartRecording = async () => {
+    try {
+      console.log('[PODCAST] Starting recording...');
+      
+      // Get available input devices
+      const devices = await audio.getAvailableInputDevices();
+      console.log('[PODCAST] Available devices:', devices);
+      
+      if (devices.length === 0) {
+        Alert.alert('No Microphone', 'No audio input devices found. Please connect a microphone.');
+        return;
+      }
+      
+      // Enable at least the first microphone (Mic 1 / Host) with the first available device
+      // This ensures audio is captured during recording
+      try {
+        const defaultDevice = devices[0];
+        console.log('[PODCAST] Enabling Mic 0 (Host) with device:', defaultDevice);
+        await audio.enableMicrophoneByIndex(0, defaultDevice);
+        
+        // Small delay to let microphone initialize
+        await new Promise(resolve => setTimeout(resolve, 300));
+      } catch (err) {
+        console.error('[PODCAST] Failed to enable microphone:', err);
+        Alert.alert('Microphone Error', 'Failed to enable microphone. Please check device permissions.');
+        return;
+      }
+      
+      // Verify the session is active
+      console.log('[PODCAST] Verifying Podcast session is active...');
+      await audio.setActiveSession('Podcast');
+      await audio.setOutputSession('Podcast');
+      
+      // Small delay to ensure session switch
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      console.log('[PODCAST] Calling audio.startRecording()...');
+      const result = await audio.startRecording();
+      console.log('[PODCAST] startRecording() returned:', result);
+      
+      if (result === false) {
+        Alert.alert('Recording Failed', 'The audio engine rejected the recording start. Make sure Podcast session is active.');
+        return;
+      }
+      
+      // Verify recording started
+      await new Promise(resolve => setTimeout(resolve, 100));
+      const snapshot = await audio.getRecordingSnapshot();
+      console.log('[PODCAST] Initial recording snapshot:', snapshot);
+      
+      if (!snapshot.recording) {
+        Alert.alert('Recording Not Active', 'Recording did not start properly. Check console for details.');
+        return;
+      }
+      
+      setChapters([]);
+      setSegments([]);
       setIsPaused(false);
       setSessionStatus("recording");
-      resumeRecording();
+      addNotification('Recording Started', `Podcast recording has started (${snapshot.outputFile})`, 'system');
+    } catch (err: any) {
+      console.error('[PODCAST] Failed to start recording:', err);
+      Alert.alert('Recording Error', err?.message || 'Failed to start recording');
     }
   };
 
-  const handleStop = () => {
-    setIsPaused(false);
-    setSessionStatus("stopped");
-    stopRecording();
+  const handlePauseResume = async () => {
+    try {
+      if (sessionStatus === "recording") {
+        console.log('[PODCAST] Pausing recording...');
+        await audio.pauseRecording();
+        setIsPaused(true);
+        setSessionStatus("paused");
+        addNotification('Recording Paused', 'Recording has been paused', 'system');
+      } else if (sessionStatus === "paused") {
+        console.log('[PODCAST] Resuming recording...');
+        await audio.resumeRecording();
+        setIsPaused(false);
+        setSessionStatus("recording");
+        addNotification('Recording Resumed', 'Recording has resumed', 'system');
+      }
+    } catch (err: any) {
+      console.error('[PODCAST] Failed to pause/resume recording:', err);
+      Alert.alert('Recording Error', err?.message || 'Failed to pause/resume recording');
+    }
+  };
+
+  const handleStop = async () => {
+    try {
+      console.log('[PODCAST] Stopping recording...');
+      
+      // Get final recording snapshot before stopping
+      const snapshot = await audio.getRecordingSnapshot();
+      
+      await audio.stopRecording();
+      setIsPaused(false);
+      setSessionStatus("stopped");
+      
+      // Wait a moment for file to be fully written
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      // Get final snapshot after stopping
+      const finalSnapshot = await audio.getRecordingSnapshot();
+      
+      // Register the completed recording
+      if (finalSnapshot.outputFile) {
+        const durationSeconds = Math.floor(finalSnapshot.duration);
+        const mins = Math.floor(durationSeconds / 60);
+        const secs = durationSeconds % 60;
+        const durationStr = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+        
+        const filename = finalSnapshot.outputFile.split(/[\\/]/).pop() || `recording_${Date.now()}.wav`;
+        const fileSizeMB = (finalSnapshot.fileSize / (1024 * 1024)).toFixed(1);
+        
+        const newRecording: Recording = {
+          id: Date.now(),
+          name: filename,
+          duration: durationStr,
+          size: `${fileSizeMB} MB`,
+          uri: `file://${finalSnapshot.outputFile}`,
+          filePath: finalSnapshot.outputFile,
+          date: new Date().toLocaleDateString(),
+          status: 'completed',
+          sampleRate: finalSnapshot.sampleRate,
+          channels: finalSnapshot.channels,
+          peakLevel: finalSnapshot.peakLevel,
+          createdAt: new Date().toISOString(),
+        };
+        
+        console.log('[PODCAST] Registering recording:', newRecording);
+        
+        // Add to store (will appear in Episode Manager)
+        useAppStore.getState().addRecording(newRecording);
+        
+        // Optionally upload to backend
+        try {
+          const formData = new FormData();
+          formData.append('file', {
+            uri: newRecording.uri,
+            name: filename,
+            type: 'audio/wav',
+          } as any);
+          formData.append('duration', durationStr);
+          formData.append('durationSeconds', durationSeconds.toString());
+          
+          const saved = await PodcastApi.uploadRecording(formData);
+          if (saved?.id) {
+            // Update with backend ID
+            useAppStore.getState().updateRecording(newRecording.id, { id: saved.id });
+          }
+        } catch (err) {
+          console.warn('[PODCAST] Backend upload failed, using local recording:', err);
+        }
+        
+        addNotification('Recording Complete', `${filename} saved successfully (${durationStr})`, 'system');
+      }
+      
+    } catch (err: any) {
+      console.error('[PODCAST] Failed to stop recording:', err);
+      Alert.alert('Recording Error', err?.message || 'Failed to stop recording');
+    }
   };
 
   const handleSaveRecording = async () => {
@@ -404,13 +551,48 @@ export default function PodcastUpload({ navigation, view = 'studio' }: any) {
       setSaveSuccessMsg(null);
     }, 4000);
 
-    // Pass to your store if needed
-    useAppStore.getState().updatePodcastState({ recordingSeconds: 0 });
+    // Reset state
     setChapters([]);
     setSegments([]);
     setIsPaused(false);
     setSessionStatus("ready");
+    addNotification('Recording Saved', `Recording saved (${finalDuration})`, 'system');
   };
+
+  // ─── Recording State Polling ────────────────────────────────────────────
+  useEffect(() => {
+    if (sessionStatus === "recording" || sessionStatus === "paused") {
+      const interval = setInterval(async () => {
+        try {
+          const snapshot = await audio.getRecordingSnapshot();
+          if (snapshot.recording) {
+            const durationSeconds = Math.floor(snapshot.duration);
+            useAppStore.getState().updatePodcastState({ recordingSeconds: durationSeconds });
+          }
+        } catch (err) {
+          console.error('[PODCAST] Failed to get recording snapshot:', err);
+        }
+      }, 100); // Poll every 100ms for smooth timer updates
+
+      return () => clearInterval(interval);
+    }
+  }, [sessionStatus]);
+
+  // ─── Activate Podcast Session on Mount ────────────────────────────────────
+  useEffect(() => {
+    const activatePodcastSession = async () => {
+      try {
+        console.log('[PODCAST] Activating Podcast session...');
+        await audio.setActiveSession('Podcast');
+        await audio.setOutputSession('Podcast');
+        console.log('[PODCAST] Podcast session activated successfully');
+      } catch (err) {
+        console.error('[PODCAST] Failed to activate Podcast session:', err);
+      }
+    };
+
+    activatePodcastSession();
+  }, []);
 
   const handleMarkSegment = () => {
     if (sessionStatus !== "recording" && sessionStatus !== "paused") return;
@@ -750,7 +932,20 @@ export default function PodcastUpload({ navigation, view = 'studio' }: any) {
 
         {/* ── FULL WIDTH BOTTOM AREA (Audio FX Panel) ────────────── */}
         <View style={{ width: '100%', marginTop: 4 }}>
-          <PlayerAudioFXPanel isDarkMode={isDarkMode} colors={C} isLive={isLive} />
+          <PlayerAudioFXPanel 
+            isDarkMode={isDarkMode} 
+            colors={C} 
+            isLive={isLive}
+            onMasterVolumeChange={(valueDb) => {
+              void audio.setMasterGain(dbToLinearGain(valueDb));
+            }}
+            onCompressorChange={(settings) => {
+              void audio.setCompressor(settings);
+            }}
+            onLimiterChange={(settings) => {
+              void audio.setLimiter(settings);
+            }}
+          />
         </View>
 
 

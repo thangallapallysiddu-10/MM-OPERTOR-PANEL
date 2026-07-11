@@ -110,6 +110,9 @@ contextBridge.exposeInMainWorld('audio', {
   setMicrophoneLimiter:     (micIndex, settings) => ipcRenderer.invoke('audio:setMicrophoneLimiter', micIndex, settings),
   resetDSP:                 () => ipcRenderer.invoke('audio:resetDSP'),
 
+  // Audio File Serving
+  readRecordingFile:        (filePath) => ipcRenderer.invoke('audio:readRecordingFile', filePath),
+
   // Event Subscription — multiplexed through a single IPC listener
   on: (eventName, callback) => {
     if (!audioListeners.has(eventName)) {

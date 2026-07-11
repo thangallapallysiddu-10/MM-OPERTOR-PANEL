@@ -319,14 +319,13 @@ export const PodcastChannelStrip = React.memo<PodcastChannelStripProps>(
         </button>
 
         {/* DSP CONTROLS */}
-        {mic.isActive && (
-          <div style={{ marginBottom: 12 }}>
-            <PodcastDSPSection
-              settings={dspSettings}
-              onChange={handleDSPChange}
-            />
-          </div>
-        )}
+        <div style={{ marginBottom: 12 }}>
+          <PodcastDSPSection
+            settings={dspSettings}
+            onChange={handleDSPChange}
+            disabled={!mic.isActive}
+          />
+        </div>
 
         {/* VU METER */}
         <div style={{ marginBottom: 12 }}>

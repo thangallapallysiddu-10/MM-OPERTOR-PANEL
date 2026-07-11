@@ -37,6 +37,7 @@ interface DSPSettings {
 interface PodcastDSPSectionProps {
   settings: DSPSettings;
   onChange: (changes: Partial<DSPSettings>) => void;
+  disabled?: boolean;
 }
 
 const COLORS = {
@@ -237,8 +238,9 @@ const CollapsibleSection: React.FC<{
   enabled: boolean;
   onToggle: () => void;
   defaultExpanded?: boolean;
+  disabled?: boolean;
   children: React.ReactNode;
-}> = ({ title, enabled, onToggle, defaultExpanded = false, children }) => {
+}> = ({ title, enabled, onToggle, defaultExpanded = false, disabled = false, children }) => {
   const [expanded, setExpanded] = useState(defaultExpanded);
 
   return (
@@ -249,6 +251,7 @@ const CollapsibleSection: React.FC<{
         borderRadius: 6,
         padding: '8px 10px',
         marginBottom: 8,
+        opacity: disabled ? 0.5 : 1,
       }}
     >
       <div
@@ -276,12 +279,13 @@ const CollapsibleSection: React.FC<{
               e.stopPropagation();
               setExpanded(!expanded);
             }}
+            disabled={disabled}
             style={{
               background: 'transparent',
               border: 'none',
               color: COLORS.textMuted,
               fontSize: 12,
-              cursor: 'pointer',
+              cursor: disabled ? 'not-allowed' : 'pointer',
               padding: 2,
             }}
           >
@@ -290,6 +294,7 @@ const CollapsibleSection: React.FC<{
         </div>
         <button
           onClick={onToggle}
+          disabled={disabled}
           style={{
             padding: '4px 10px',
             borderRadius: 4,
@@ -298,7 +303,7 @@ const CollapsibleSection: React.FC<{
             color: enabled ? '#000' : COLORS.textMuted,
             fontSize: 9,
             fontWeight: 800,
-            cursor: 'pointer',
+            cursor: disabled ? 'not-allowed' : 'pointer',
             fontFamily: 'monospace',
           }}
         >
@@ -314,16 +319,18 @@ const CollapsibleSection: React.FC<{
  * Main DSP Section Component
  */
 export const PodcastDSPSection = React.memo<PodcastDSPSectionProps>(
-  ({ settings, onChange }) => {
+  ({ settings, onChange, disabled = false }) => {
     const updateSetting = useCallback(
       (key: keyof DSPSettings, value: number | boolean) => {
-        onChange({ [key]: value });
+        if (!disabled) {
+          onChange({ [key]: value });
+        }
       },
-      [onChange]
+      [onChange, disabled]
     );
 
     return (
-      <div style={{ width: '100%' }}>
+      <div style={{ width: '100%', opacity: disabled ? 0.5 : 1 }}>
         {/* GAIN */}
         <div
           style={{
@@ -415,6 +422,7 @@ export const PodcastDSPSection = React.memo<PodcastDSPSectionProps>(
           title="HIGH-PASS"
           enabled={settings.hpfEnabled}
           onToggle={() => updateSetting('hpfEnabled', !settings.hpfEnabled)}
+          disabled={disabled}
         >
           <div
             style={{
@@ -449,6 +457,7 @@ export const PodcastDSPSection = React.memo<PodcastDSPSectionProps>(
           title="LOW-PASS"
           enabled={settings.lpfEnabled}
           onToggle={() => updateSetting('lpfEnabled', !settings.lpfEnabled)}
+          disabled={disabled}
         >
           <div
             style={{
@@ -485,6 +494,8 @@ export const PodcastDSPSection = React.memo<PodcastDSPSectionProps>(
           title="COMPRESSOR"
           enabled={settings.compEnabled}
           onToggle={() => updateSetting('compEnabled', !settings.compEnabled)}
+          defaultExpanded={true}
+          disabled={disabled}
         >
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {/* Row 1: Threshold, Ratio, Makeup */}
@@ -594,6 +605,8 @@ export const PodcastDSPSection = React.memo<PodcastDSPSectionProps>(
           title="LIMITER"
           enabled={settings.limEnabled}
           onToggle={() => updateSetting('limEnabled', !settings.limEnabled)}
+          defaultExpanded={true}
+          disabled={disabled}
         >
           <div
             style={{

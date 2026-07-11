@@ -267,18 +267,37 @@ function registerIpcHandlers() {
 
   // Audio Engine: Recording APIs
   ipcMain.handle('audio:startRecording', async () => {
-    return invokeAudio('startRecording');
+    const fs = require('fs');
+    
+    // Generate recordings directory in user data folder
+    const recordingsDir = path.join(app.getPath('userData'), 'recordings');
+    if (!fs.existsSync(recordingsDir)) {
+      fs.mkdirSync(recordingsDir, { recursive: true });
+      console.log('[RECORDING] Created recordings directory:', recordingsDir);
+    }
+    
+    // Generate unique filename with timestamp
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
+    const outputPath = path.join(recordingsDir, `podcast_${timestamp}.wav`);
+    
+    console.log('[RECORDING] Starting recording to:', outputPath);
+    const result = invokeAudio('startRecording', outputPath);
+    console.log('[RECORDING] Start result:', result);
+    return result;
   });
 
   ipcMain.handle('audio:pauseRecording', async () => {
+    console.log('[RECORDING] Pausing recording');
     return invokeAudio('pauseRecording');
   });
 
   ipcMain.handle('audio:resumeRecording', async () => {
+    console.log('[RECORDING] Resuming recording');
     return invokeAudio('resumeRecording');
   });
 
   ipcMain.handle('audio:stopRecording', async () => {
+    console.log('[RECORDING] Stopping recording');
     return invokeAudio('stopRecording');
   });
 
@@ -326,6 +345,47 @@ function registerIpcHandlers() {
 
   ipcMain.handle('audio:resetDSP', async () => {
     return invokeAudio('resetDSP');
+  });
+
+  // Audio File Serving (for publishing episodes)
+  ipcMain.handle('audio:readRecordingFile', async (e, filePath) => {
+    const fs = require('fs');
+    try {
+      console.log('[AUDIO FILE] Reading file:', filePath);
+      
+      // Security: Verify the file is within the recordings directory
+      const recordingsDir = path.join(app.getPath('userData'), 'recordings');
+      const normalizedPath = path.normalize(filePath);
+      const normalizedRecordingsDir = path.normalize(recordingsDir);
+      
+      if (!normalizedPath.startsWith(normalizedRecordingsDir)) {
+        console.error('[AUDIO FILE] Security: File path outside recordings directory');
+        throw new Error('Invalid file path: Access denied');
+      }
+      
+      // Check if file exists
+      if (!fs.existsSync(filePath)) {
+        console.error('[AUDIO FILE] File not found:', filePath);
+        throw new Error('File not found');
+      }
+      
+      // Read file as Buffer
+      const buffer = fs.readFileSync(filePath);
+      console.log('[AUDIO FILE] File read successfully, size:', buffer.length);
+      
+      // Return as Uint8Array (which will be transferred as ArrayBuffer)
+      return {
+        success: true,
+        data: new Uint8Array(buffer),
+        size: buffer.length,
+      };
+    } catch (err) {
+      console.error('[AUDIO FILE] Error reading file:', err);
+      return {
+        success: false,
+        error: err.message,
+      };
+    }
   });
 }
 

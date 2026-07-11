@@ -639,8 +639,8 @@ function ChannelStrip({
           {/* Right scale — dashes pointing left toward fader, numbers right toward VU */}
           <ScaleCol side="right" />
           <div style={{ display: "flex", gap: 3, marginLeft: 2 }}>
-            <VuBars level={ch.muted ? 0 : (ch.volume ?? 0)} />
-            <VuBars level={ch.muted ? 0 : (ch.volume ?? 0)} />
+            <VuBars level={ch.muted ? 0 : ch.vuL} />
+            <VuBars level={ch.muted ? 0 : ch.vuR} />
           </div>
         </div>
 
@@ -690,6 +690,35 @@ export default function DualMicSetup({ channels: extChannels, onChannelChange: e
       };
     }));
   }, [extChannels]);
+
+  // Meter updates from audio engine
+  useEffect(() => {
+    const levelToPercent = (level: number) => {
+      if (level <= 0) return 0;
+      const db = 20 * Math.log10(level);
+      // Map -60dB to 0%, 0dB to 100%
+      const pct = ((db + 60) / 60) * 100;
+      return Math.max(0, Math.min(100, pct));
+    };
+
+    const handleMeters = (snapshot: any) => {
+      if (!snapshot || !snapshot.microphones) return;
+      
+      setChannels(prev => prev.map((ch, idx) => {
+        const micData = snapshot.microphones[idx];
+        if (!micData) return ch;
+        
+        return {
+          ...ch,
+          vuL: levelToPercent(micData.peakL ?? micData.rmsL ?? 0),
+          vuR: levelToPercent(micData.peakR ?? micData.rmsR ?? 0),
+        };
+      }));
+    };
+
+    audio.on('meters:update', handleMeters);
+    return () => audio.off('meters:update', handleMeters);
+  }, []);
 
   const handleChange = useCallback((id: number, changes: ChannelChanges) => {
     setChannels(prev => prev.map(ch => ch.id !== id ? ch : { ...ch, ...changes }));

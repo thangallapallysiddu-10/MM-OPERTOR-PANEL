@@ -1,5 +1,8 @@
 #include "Recorder.h"
+#include "../../utilities/RtLogger.h"
 #include <thread>
+#include <cstdio>
+#include <atomic>
 
 namespace melodymeet {
 
@@ -26,14 +29,35 @@ void Recorder::prepare(double sampleRate, int /*maxBlockSize*/, int channelCount
 void Recorder::process(const float* const* inputChannels, int channelCount, int numSamples) noexcept {
     // Safety check: ensure we receive enough channels to feed the ThreadedWriter,
     // which was instantiated with channelCount_ channels.
-    if (numSamples <= 0 || inputChannels == nullptr || channelCount < channelCount_) 
+    if (numSamples <= 0 || inputChannels == nullptr || channelCount < channelCount_) {
+        static std::atomic<uint64_t> skipCount{0};
+        const auto skips = skipCount.fetch_add(1, std::memory_order_relaxed) + 1;
+        if (skips % 100 == 0) {
+            char buf[256];
+            std::snprintf(buf, sizeof(buf), 
+                "[RECORDER SKIP] samples=%d channels=%d preparedChannels=%d ptr=%p", 
+                numSamples, channelCount, channelCount_, (void*)inputChannels);
+            RtLogger::get().log(buf);
+            std::cout << buf << std::endl;
+        }
         return;
+    }
 
     // Enter processing critical section using a wait-free flag.
     processing_.store(true, std::memory_order_seq_cst);
 
     if (auto* session = activeSessionPtr_.load(std::memory_order_seq_cst)) {
         session->process(inputChannels, numSamples);
+        
+        static std::atomic<uint64_t> processCount{0};
+        const auto count = processCount.fetch_add(1, std::memory_order_relaxed) + 1;
+        if (count % 100 == 0) {
+            char buf[256];
+            std::snprintf(buf, sizeof(buf), "[RECORDER PROCESSING] count=%llu samples=%d", 
+                (unsigned long long)count, numSamples);
+            RtLogger::get().log(buf);
+            std::cout << buf << std::endl;
+        }
     }
 
     processing_.store(false, std::memory_order_seq_cst);

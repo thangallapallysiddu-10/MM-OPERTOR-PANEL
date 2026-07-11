@@ -77,37 +77,47 @@ const makeDefaultChannels = (roomLink: string): Channel[] => [
   {
     id: 1, slotId: "mic1", label: "1. Host", name: "Host",
     status: "active",
-    gain: 60, hi: 50, mid: 50, low: 50, fader: 62,
+    gain: 45, hi: 50, mid: 50, low: 50, fader: 60,  // ← RJ defaults
     muted: false, soloed: false, vuL: 0, vuR: 0,
     hasLink: false, guestName: null,
+    compEnabled: true, compThreshold: -15, compRatio: 3, compAttack: 10, compRelease: 100, compMakeup: 2,
+    limEnabled: true, limThreshold: -1.0, limRelease: 80,
   },
   {
     id: 2, slotId: "mic2", label: "2. Co-Host", name: "Co-Host",
     status: "offline",
-    gain: 0, hi: 50, mid: 50, low: 50, fader: 58,
-    muted: true, soloed: false, vuL: 0, vuR: 0,
+    gain: 35, hi: 50, mid: 50, low: 50, fader: 58,  // ← RJ defaults
+    muted: false, soloed: false, vuL: 0, vuR: 0,  // ← Changed muted to false
     hasLink: true, guestName: null,
+    compEnabled: true, compThreshold: -15, compRatio: 3, compAttack: 10, compRelease: 100, compMakeup: 2,
+    limEnabled: true, limThreshold: -1.0, limRelease: 80,
   },
   {
     id: 3, slotId: "mic3", label: "3. Guest 1", name: "Guest 1",
     status: "offline",
-    gain: 0, hi: 50, mid: 50, low: 50, fader: 65,
-    muted: true, soloed: false, vuL: 0, vuR: 0,
+    gain: 50, hi: 50, mid: 50, low: 50, fader: 65,  // ← RJ defaults
+    muted: false, soloed: false, vuL: 0, vuR: 0,  // ← Changed muted to false
     hasLink: true, guestName: null,
+    compEnabled: true, compThreshold: -15, compRatio: 3, compAttack: 10, compRelease: 100, compMakeup: 2,
+    limEnabled: true, limThreshold: -1.0, limRelease: 80,
   },
   {
     id: 4, slotId: "mic4", label: "4. Guest 2", name: "Guest 2",
     status: "offline",
-    gain: 0, hi: 50, mid: 50, low: 50, fader: 60,
-    muted: true, soloed: false, vuL: 0, vuR: 0,
+    gain: 40, hi: 50, mid: 50, low: 50, fader: 60,  // ← RJ defaults
+    muted: false, soloed: false, vuL: 0, vuR: 0,  // ← Changed muted to false
     hasLink: true, guestName: null,
+    compEnabled: true, compThreshold: -15, compRatio: 3, compAttack: 10, compRelease: 100, compMakeup: 2,
+    limEnabled: true, limThreshold: -1.0, limRelease: 80,
   },
   {
     id: 5, slotId: "mic5", label: "5. Guest 3", name: "Guest 3",
     status: "offline",
-    gain: 0, hi: 50, mid: 50, low: 50, fader: 58,
-    muted: true, soloed: false, vuL: 0, vuR: 0,
+    gain: 55, hi: 50, mid: 50, low: 50, fader: 68,  // ← RJ defaults
+    muted: false, soloed: false, vuL: 0, vuR: 0,  // ← Changed muted to false
     hasLink: true, guestName: null,
+    compEnabled: true, compThreshold: -15, compRatio: 3, compAttack: 10, compRelease: 100, compMakeup: 2,
+    limEnabled: true, limThreshold: -1.0, limRelease: 80,
   },
 ];
 
@@ -189,6 +199,131 @@ function VuBars({ level }: { level: number }) {
           : (isRed ? C.barGhostRed : isAmber ? C.barGhostAmber : C.barGhostGreen);
         return <div key={i} style={{ width: 11, height: BAR_H, borderRadius: 1, backgroundColor: color, flexShrink: 0 }} />;
       })}
+    </div>
+  );
+}
+
+// ── COMPRESSOR SECTION ────────────────────────────────────────────────────────
+function CompressorSection({ ch, onChange }: { ch: Channel; onChange: (c: ChannelChanges) => void }) {
+  const [expanded, setExpanded] = useState(false);  // ← COLLAPSED BY DEFAULT
+  const upd = (c: ChannelChanges) => onChange(c);
+  
+  // Initialize compressor state if not exists (DEFAULT: ENABLED like RJ)
+  const compEnabled = (ch as any).compEnabled ?? true;
+  const compThreshold = (ch as any).compThreshold ?? -15;
+  const compRatio = (ch as any).compRatio ?? 3;
+  const compAttack = (ch as any).compAttack ?? 10;
+  const compRelease = (ch as any).compRelease ?? 100;
+  const compMakeup = (ch as any).compMakeup ?? 2;
+
+  return (
+    <div style={{ marginBottom: 10, borderTop: `1px solid ${C.stripBorder}`, paddingTop: 8 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: expanded ? 8 : 0 }}>
+        <div 
+          onClick={() => setExpanded(!expanded)} 
+          style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', gap: 4 }}
+        >
+          <span style={{ fontSize: 9, color: C.textLight }}>{expanded ? '▼' : '▶'}</span>
+          <span style={{ fontSize: 10, color: C.textLight, fontFamily: 'monospace', fontWeight: 700 }}>COMPRESSOR</span>
+        </div>
+        <button 
+           onClick={() => upd({ compEnabled: !compEnabled } as any)}
+           style={{
+             fontSize: 9, padding: '3px 8px', borderRadius: 4, 
+             backgroundColor: compEnabled ? C.onAirGreen : C.offlineGray,
+             color: '#fff', border: 'none', cursor: 'pointer', fontFamily: 'monospace', fontWeight: 700
+           }}
+        >
+          {compEnabled ? 'ON' : 'OFF'}
+        </button>
+      </div>
+      
+      {expanded && (
+        <>
+          {/* ROW 1: Threshold, Ratio, Makeup */}
+          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6, opacity: compEnabled ? 1 : 0.4 }}>
+             <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
+               <span style={{ fontSize: 8, color: C.textMuted, fontFamily: "monospace" }}>THRESH</span>
+               <Knob value={((compThreshold + 40) / 40) * 100} onChange={v => upd({ compThreshold: -40 + (v / 100) * 40 } as any)} size={28} />
+             <span style={{ fontSize: 8, color: C.textLight, fontFamily: "monospace" }}>{compThreshold.toFixed(1)}</span>
+           </div>
+         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
+           <span style={{ fontSize: 8, color: C.textMuted, fontFamily: "monospace" }}>RATIO</span>
+           <Knob value={((compRatio - 1) / 19) * 100} onChange={v => upd({ compRatio: 1 + (v / 100) * 19 } as any)} size={28} />
+           <span style={{ fontSize: 8, color: C.textLight, fontFamily: "monospace" }}>{compRatio.toFixed(1)}:1</span>
+         </div>
+         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
+           <span style={{ fontSize: 8, color: C.textMuted, fontFamily: "monospace" }}>MAKEUP</span>
+           <Knob value={(compMakeup / 12) * 100} onChange={v => upd({ compMakeup: (v / 100) * 12 } as any)} size={28} />
+           <span style={{ fontSize: 8, color: C.textLight, fontFamily: "monospace" }}>{compMakeup.toFixed(1)}</span>
+         </div>
+      </div>
+
+      {/* ROW 2: Attack, Release */}
+      <div style={{ display: "flex", justifyContent: "center", gap: 16, opacity: compEnabled ? 1 : 0.4 }}>
+         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
+           <span style={{ fontSize: 8, color: C.textMuted, fontFamily: "monospace" }}>ATTACK</span>
+           <Knob value={(compAttack / 100) * 100} onChange={v => upd({ compAttack: (v / 100) * 100 } as any)} size={28} />
+           <span style={{ fontSize: 8, color: C.textLight, fontFamily: "monospace" }}>{Math.round(compAttack)} ms</span>
+         </div>
+         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
+           <span style={{ fontSize: 8, color: C.textMuted, fontFamily: "monospace" }}>RELEASE</span>
+           <Knob value={((compRelease - 10) / 490) * 100} onChange={v => upd({ compRelease: 10 + (v / 100) * 490 } as any)} size={28} />
+           <span style={{ fontSize: 8, color: C.textLight, fontFamily: "monospace" }}>{Math.round(compRelease)} ms</span>
+         </div>
+      </div>
+      </>
+      )}
+    </div>
+  );
+}
+
+// ── LIMITER SECTION ───────────────────────────────────────────────────────────
+function LimiterSection({ ch, onChange }: { ch: Channel; onChange: (c: ChannelChanges) => void }) {
+  const [expanded, setExpanded] = useState(false);  // ← COLLAPSED BY DEFAULT
+  const upd = (c: ChannelChanges) => onChange(c);
+  
+  // Initialize limiter state if not exists (DEFAULT: ENABLED like RJ)
+  const limEnabled = (ch as any).limEnabled ?? true;
+  const limThreshold = (ch as any).limThreshold ?? -1.0;
+  const limRelease = (ch as any).limRelease ?? 80;
+
+  return (
+    <div style={{ marginBottom: 10, borderTop: `1px solid ${C.stripBorder}`, paddingTop: 8 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: expanded ? 8 : 0 }}>
+        <div 
+          onClick={() => setExpanded(!expanded)} 
+          style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', gap: 4 }}
+        >
+          <span style={{ fontSize: 9, color: C.textLight }}>{expanded ? '▼' : '▶'}</span>
+          <span style={{ fontSize: 10, color: C.textLight, fontFamily: 'monospace', fontWeight: 700 }}>LIMITER</span>
+        </div>
+        <button 
+           onClick={() => upd({ limEnabled: !limEnabled } as any)}
+           style={{
+             fontSize: 9, padding: '3px 8px', borderRadius: 4, 
+             backgroundColor: limEnabled ? '#ef4444' : C.offlineGray,
+             color: '#fff', border: 'none', cursor: 'pointer', fontFamily: 'monospace', fontWeight: 700
+           }}
+        >
+          {limEnabled ? 'ON' : 'OFF'}
+        </button>
+      </div>
+      
+      {expanded && (
+      <div style={{ display: "flex", justifyContent: "center", gap: 16, opacity: limEnabled ? 1 : 0.4 }}>
+         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
+           <span style={{ fontSize: 8, color: C.textMuted, fontFamily: "monospace" }}>CEILING</span>
+           <Knob value={((limThreshold + 12) / 12) * 100} onChange={v => upd({ limThreshold: -12 + (v / 100) * 12 } as any)} size={28} />
+           <span style={{ fontSize: 8, color: C.textLight, fontFamily: "monospace" }}>{limThreshold.toFixed(1)}</span>
+         </div>
+         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
+           <span style={{ fontSize: 8, color: C.textMuted, fontFamily: "monospace" }}>RELEASE</span>
+           <Knob value={((limRelease - 10) / 490) * 100} onChange={v => upd({ limRelease: 10 + (v / 100) * 490 } as any)} size={28} />
+           <span style={{ fontSize: 8, color: C.textLight, fontFamily: "monospace" }}>{Math.round(limRelease)} ms</span>
+         </div>
+      </div>
+      )}
     </div>
   );
 }
@@ -406,6 +541,12 @@ function ChannelStrip({
             </div>
           ))}
         </div>
+
+        {/* COMPRESSOR */}
+        <CompressorSection ch={ch} onChange={upd} />
+
+        {/* LIMITER */}
+        <LimiterSection ch={ch} onChange={upd} />
 
         {/* DEVICE SELECTION */}
         <div style={{ marginBottom: 10 }}>
@@ -717,6 +858,51 @@ export default function PodcastAudioDeck({ roomLink = window?.location?.href ?? 
               eqTreble: ch.hi
             });
           }
+        }
+
+        // ── COMPRESSOR UPDATES ──
+        if (
+          changes.compEnabled !== undefined ||
+          changes.compThreshold !== undefined ||
+          changes.compRatio !== undefined ||
+          changes.compAttack !== undefined ||
+          changes.compRelease !== undefined ||
+          changes.compMakeup !== undefined
+        ) {
+          const micIndex = ch.id - 1; // Convert to 0-indexed (mic1=0, mic2=1, etc.)
+          const enabled = changes.compEnabled !== undefined ? changes.compEnabled : (ch as any).compEnabled ?? true;
+          const threshold = changes.compThreshold !== undefined ? changes.compThreshold : (ch as any).compThreshold ?? -15;
+          const ratio = changes.compRatio !== undefined ? changes.compRatio : (ch as any).compRatio ?? 3;
+          const attack = changes.compAttack !== undefined ? changes.compAttack : (ch as any).compAttack ?? 10;
+          const release = changes.compRelease !== undefined ? changes.compRelease : (ch as any).compRelease ?? 100;
+          const makeup = changes.compMakeup !== undefined ? changes.compMakeup : (ch as any).compMakeup ?? 2;
+
+          void audio.setMicrophoneCompressor(micIndex, {
+            enabled,
+            threshold,
+            ratio,
+            attack,
+            release,
+            makeup,
+          });
+        }
+
+        // ── LIMITER UPDATES ──
+        if (
+          changes.limEnabled !== undefined ||
+          changes.limThreshold !== undefined ||
+          changes.limRelease !== undefined
+        ) {
+          const micIndex = ch.id - 1; // Convert to 0-indexed (mic1=0, mic2=1, etc.)
+          const enabled = changes.limEnabled !== undefined ? changes.limEnabled : (ch as any).limEnabled ?? true;
+          const threshold = changes.limThreshold !== undefined ? changes.limThreshold : (ch as any).limThreshold ?? -1.0;
+          const release = changes.limRelease !== undefined ? changes.limRelease : (ch as any).limRelease ?? 80;
+
+          void audio.setMicrophoneLimiter(micIndex, {
+            enabled,
+            threshold,
+            release,
+          });
         }
       }
       return next;

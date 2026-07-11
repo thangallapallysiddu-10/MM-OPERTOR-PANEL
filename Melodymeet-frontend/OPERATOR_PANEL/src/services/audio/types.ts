@@ -49,8 +49,15 @@ export interface DSPSnapshot {
 }
 
 export interface RecordingSnapshot {
-  isRecording: boolean;
-  durationMs: number;
+  version: number;
+  recording: boolean;
+  paused: boolean;
+  duration: number;
+  outputFile: string;
+  sampleRate: number;
+  channels: number;
+  fileSize: number;
+  peakLevel: number;
 }
 
 export interface BroadcastSnapshot {
