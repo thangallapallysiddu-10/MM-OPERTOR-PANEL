@@ -1,3 +1,4 @@
+#so if you are working on the op please make a new branch with your initial name then work with the op then just raise a pr donot merge with main !
 # how to setup operator panel use this text paste it in chatgpt then install acc to it !
 1. Install Required Software
 Node.js
