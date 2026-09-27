@@ -20,9 +20,8 @@ bool EngineHost::initialize()
         return false;
     }
 
-    stateManager.setState(EngineState::Ready);
-
     logger.info("Engine Ready");
+
 
     return true;
 }
@@ -33,9 +32,8 @@ void EngineHost::shutdown()
 
     audioEngine.shutdown();
 
-    stateManager.setState(EngineState::Shutdown);
-
     logger.info("Shutdown complete.");
+
 }
 
 } // namespace melodymeet

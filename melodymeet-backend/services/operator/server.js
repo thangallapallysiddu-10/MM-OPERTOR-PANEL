@@ -38,6 +38,7 @@ const analyticsRoutes = require('./routes/analytics.routes');
 const rjRoutes = require('./routes/rj.routes');
 const operatorProfileRoutes = require('./routes/operator.profile.routes');
 const authRoutes = require('./auth/routes/auth.routes');
+const openconnectRoutes = require('./routes/openconnect.routes');
 
 const app = express();
 const server = http.createServer(app);
@@ -135,6 +136,7 @@ app.use('/api/analytics', analyticsRoutes);
 app.use('/api/rj', rjRoutes);
 app.use('/api/profile', operatorProfileRoutes);
 app.use('/api/auth', authRoutes);
+app.use('/api/openconnect', openconnectRoutes);
 
 app.get('/', (req, res) => {
   res.json({
@@ -147,6 +149,7 @@ app.get('/', (req, res) => {
       analytics: 'GET /api/analytics/dashboard',
       rjStudio: 'GET /api/rj/:studioId',
       operatorProfile: 'GET /api/profile/me',
+      openConnect: 'GET /api/openconnect/health',
     },
     auth: {
       signup: 'POST /api/auth/signup',

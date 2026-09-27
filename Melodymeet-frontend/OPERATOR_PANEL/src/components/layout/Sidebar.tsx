@@ -65,8 +65,10 @@ const menuItems = [
     ]
   },
   { name: 'RJStudio',   icon: 'mic' as const,         label: 'RJ Studio' },
+  { name: 'OpenConnect', icon: 'server' as const,      label: 'OpenConnect' },
   { name: 'Profile',    icon: 'user' as const,        label: 'Profile' },
 ];
+
 
 const Sidebar: React.FC<SidebarProps> = ({
   currentScreen,

@@ -4,9 +4,8 @@
 #include "../core/Configuration.h"
 #include "../core/Logger.h"
 #include "../core/Version.h"
-#include "../event/EventManager.h"
-#include "../state/StateManager.h"
 #include "AudioEngine.h"
+
 
 namespace melodymeet
 {
@@ -25,9 +24,8 @@ private:
     Configuration configuration;
     Version version;
     CommandManager commandManager;
-    EventManager eventManager;
-    StateManager stateManager;
     AudioEngine audioEngine;
+
 };
 
 } // namespace melodymeet
