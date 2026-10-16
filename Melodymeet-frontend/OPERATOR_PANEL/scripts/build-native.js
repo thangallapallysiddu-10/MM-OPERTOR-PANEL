@@ -1,5 +1,6 @@
 const { execSync } = require('child_process');
 const path = require('path');
+const fs = require('fs');
 
 try {
   // Determine Electron runtime version automatically
@@ -7,7 +8,13 @@ try {
   console.log(`[build-native] Target Electron version: ${electronVersion}`);
 
   // Resolve absolute path to the vcpkg toolchain to avoid CMake relative path issues
-  const toolchainPath = path.resolve(__dirname, '../../../melodymeet-audio-engine/vcpkg/scripts/buildsystems/vcpkg.cmake');
+  let toolchainPath = path.resolve(__dirname, '../../../melodymeet-audio-engine/vcpkg/scripts/buildsystems/vcpkg.cmake');
+  if (!fs.existsSync(toolchainPath)) {
+    const fallbackPath = path.resolve(__dirname, '../../../../vcpkg/scripts/buildsystems/vcpkg.cmake');
+    if (fs.existsSync(fallbackPath)) {
+      toolchainPath = fallbackPath;
+    }
+  }
   console.log(`[build-native] CMake Toolchain Path: ${toolchainPath}`);
 
   // Execute cmake-js with the correct runtime and toolchain

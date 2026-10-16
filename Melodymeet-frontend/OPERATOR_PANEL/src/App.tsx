@@ -25,6 +25,7 @@ import RJStudio from './features/rj';
 const PodcastUpload = lazy(() => import('./features/podcast/PodcastUpload'));
 
 const Profile = lazy(() => import('./pages/Profile'));
+const OpenConnectPanel = lazy(() => import('./features/openconnect/OpenConnectPanel').then(m => ({ default: m.OpenConnectPanel })));
 const GuestJoinPage = lazy(() => import('./pages/GuestJoinPage'));
 const Login = lazy(() => import('./pages/Login'));
 const Signup = lazy(() => import('./pages/Signup'));
@@ -71,7 +72,8 @@ const routeMap: Record<string, string> = {
   'RJStudio': '/rj',
   'Podcast': '/podcast',
   'Profile': '/profile',
-  'EpisodeManager': '/episodes'
+  'EpisodeManager': '/episodes',
+  'OpenConnect': '/openconnect'
 };
 
 const pathMap: Record<string, string> = {
@@ -79,7 +81,8 @@ const pathMap: Record<string, string> = {
   '/rj': 'RJStudio',
   '/podcast': 'Podcast',
   '/profile': 'Profile',
-  '/episodes': 'EpisodeManager'
+  '/episodes': 'EpisodeManager',
+  '/openconnect': 'OpenConnect'
 };
 
 function AppContent({ onLogout }: { onLogout: () => Promise<void> }) {
@@ -92,7 +95,7 @@ function AppContent({ onLogout }: { onLogout: () => Promise<void> }) {
           return pathMap[path];
         }
         const saved = localStorage.getItem('currentScreen');
-        if (saved && ['Dashboard', 'RJStudio', 'Podcast', 'EpisodeManager', 'Profile'].includes(saved)) {
+        if (saved && ['Dashboard', 'RJStudio', 'Podcast', 'EpisodeManager', 'Profile', 'OpenConnect'].includes(saved)) {
           return saved;
         }
       }
@@ -240,6 +243,7 @@ function AppContent({ onLogout }: { onLogout: () => Promise<void> }) {
         return <Suspense fallback={<View style={styles.centered}><ActivityIndicator size="large" color="#000000" /></View>}><PodcastUpload view={currentScreen === 'EpisodeManager' ? 'manager' : 'studio'} /></Suspense>;
 
       case 'Profile': return <Suspense fallback={<View style={styles.centered}><ActivityIndicator size="large" color="#000000" /></View>}><Profile navigation={navigation} /></Suspense>;
+      case 'OpenConnect': return <Suspense fallback={<View style={styles.centered}><ActivityIndicator size="large" color="#000000" /></View>}><OpenConnectPanel /></Suspense>;
       default: return <Suspense fallback={<View style={styles.centered}><ActivityIndicator size="large" color="#000000" /></View>}><Dashboard navigation={navigation} /></Suspense>;
     }
   };

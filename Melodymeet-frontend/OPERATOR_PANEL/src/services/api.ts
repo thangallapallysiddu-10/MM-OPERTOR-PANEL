@@ -5,6 +5,8 @@
  */
 
 export { AuthApi } from './api/authApi';
+export { OpenConnectApi, OpenConnectApi as openConnectApi } from './api/openConnectApi';
+
 export {
   StreamApi as streamApi,
   PodcastApi as podcastApi,
